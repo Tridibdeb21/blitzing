@@ -3,57 +3,135 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚡ PUC Blitz Cup · 1v1 Codeforces Arena</title>
+    <title>⚡ PUC Blitz Cup · Room Battle System</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="cup-container">
     <div class="blitz-header">
         <div class="logo">
-            <h1>⚡ PUC BLITZ CUP <span>1v1</span></h1>
+            <h1>⚡ PUC BLITZ CUP <span>Room Battle</span></h1>
         </div>
         <div class="user-panel">
-            <div class="handle-input" id="p1InputGroup">
-                <label>P1</label>
-                <input type="text" id="p1HandleInput" placeholder="tourist">
+            <div class="handle-input">
+                <label>Your Handle</label>
+                <input type="text" id="userHandleInput" placeholder="tourist">
             </div>
-            <div class="handle-input" id="p2InputGroup">
-                <label>P2</label>
-                <input type="text" id="p2HandleInput" placeholder="kevinsogo">
-            </div>
-            <button id="loginBtn">✓ set players</button>
-            <div id="loggedInfo" class="logged-info">👤 players not set</div>
-            <button id="reconnectBtn" class="reconnect-btn" style="display: none;">🔄 Reconnect</button>
-        </div>
-    </div>
-
-    <div class="config-dashboard">
-        <div class="config-block">
-            <label>⏱️ total duration (min)</label>
-            <input type="number" id="totalDuration" min="2" max="60" value="10" step="1">
-        </div>
-        <div class="config-block">
-            <label>🔄 check interval (sec)</label>
-            <input type="number" id="checkInterval" min="2" max="10" value="3" step="1">
-        </div>
-        <div class="action-buttons">
-            <div class="start-battle">
-                <button id="startBattleBtn">▶ START BATTLE</button>
-            </div>
-            <button class="cancel-game-btn" id="cancelGameBtn">⏹️ Cancel Game</button>
+            <button id="setHandleBtn">✓ Set Handle</button>
+            <div id="loggedInfo" class="logged-info">👤 not set</div>
             <a href="results.html" class="results-btn" target="_blank">📊 View Results</a>
         </div>
     </div>
 
+    <!-- Room Controls -->
+    <div class="room-controls" id="roomControls">
+        <div class="create-room-section">
+            <h2>🎮 Create Room</h2>
+            <div class="room-form">
+                <input type="text" id="roomNameInput" placeholder="Room Name (e.g., MyBlitz)">
+                
+                <div class="config-group">
+                    <h3>⚙️ Battle Configuration</h3>
+                    
+                    <div class="config-row">
+                        <label>⏱️ Duration (minutes)</label>
+                        <input type="number" id="createDuration" min="2" max="60" value="10" step="1">
+                    </div>
+                    
+                    <div class="config-row">
+                        <label>🔄 Check Interval (seconds)</label>
+                        <input type="number" id="createInterval" min="2" max="10" value="3" step="1">
+                    </div>
+                </div>
+
+                <div class="config-group">
+                    <h3>📋 Problem Set</h3>
+                    <div id="createProblemsList" class="problems-list">
+                        <!-- Problems will be added here dynamically -->
+                    </div>
+                    <button type="button" class="add-problem-btn-small" id="createAddProblemBtn">➕ Add Problem</button>
+                </div>
+
+                <button id="createRoomBtn" class="primary-btn">🚀 Create Room</button>
+            </div>
+        </div>
+        
+        <div class="join-room-section">
+            <h2>🔑 Join Room</h2>
+            <div class="room-form">
+                <input type="text" id="joinRoomIdInput" placeholder="Room ID">
+                <input type="password" id="joinRoomPasswordInput" placeholder="Room Password">
+                <button id="joinRoomBtn" class="primary-btn">🔓 Join Room</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Blitz List -->
+    <div class="active-blitz-section" id="activeBlitzSection">
+        <h2>🔥 Active Blitz Rooms</h2>
+        <div class="blitz-list" id="activeBlitzList">
+            <div class="loading">Loading active rooms...</div>
+        </div>
+    </div>
+
+    <!-- Room Info Bar (shown when in room) -->
+    <div class="room-info-bar" id="roomInfoBar" style="display: none;">
+        <div class="room-details">
+            <span class="room-name" id="currentRoomName"></span>
+            <span class="room-id">ID: <span id="currentRoomId"></span></span>
+            <span class="room-players" id="roomPlayers"></span>
+        </div>
+        <div>
+            <button class="cancel-game-btn" id="cancelGameBtn">⏹️ Cancel Game</button>
+            <button class="leave-room-btn" id="leaveRoomBtn">🚪 Leave Room</button>
+        </div>
+    </div>
+
+    <!-- Config Dashboard (shown when both players in room) -->
+    <div class="config-dashboard" id="configDashboard" style="display: none;">
+        <div class="config-block">
+            <label>⏱️ Duration</label>
+            <input type="text" id="displayDuration" readonly class="config-display">
+        </div>
+        <div class="config-block">
+            <label>🔄 Check Interval</label>
+            <input type="text" id="displayInterval" readonly class="config-display">
+        </div>
+        <div class="config-block">
+            <label>📋 Problems</label>
+            <input type="text" id="displayProblems" readonly class="config-display">
+        </div>
+        <div class="action-buttons">
+            <div class="start-battle">
+                <button id="startBattleBtn" disabled>▶ WAITING FOR HOST</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Problems Display (read-only) -->
+    <div class="problems-section" id="problemsDisplaySection" style="display: none;">
+        <h2>📋 Problem Set</h2>
+        <table class="problems-table">
+            <thead>
+                <tr>
+                    <th>Problem</th>
+                    <th>Points</th>
+                    <th>Rating</th>
+                </tr>
+            </thead>
+            <tbody id="problemsDisplayBody"></tbody>
+        </table>
+    </div>
+
     <!-- Match Status Bar -->
-    <div class="match-status-bar" id="matchStatusBar">
+    <div class="match-status-bar" id="matchStatusBar" style="display: none;">
         <div class="match-status" id="matchStatusText">⏳ Ready to start</div>
         <div class="match-timer-display" id="matchTimer">10:00</div>
         <div class="break-indicator" id="breakIndicator" style="display: none;">Break</div>
     </div>
 
-    <!-- Leaderboard at Top -->
-    <div class="leaderboard">
+    <!-- Leaderboard -->
+    <div class="leaderboard" id="leaderboard" style="display: none;">
         <h3>🏆 LEADERBOARD</h3>
         <table class="leaderboard-table" id="leaderboardTable">
             <thead>
@@ -68,11 +146,11 @@
     </div>
 
     <!-- Arena -->
-    <div class="arena-panel">
+    <div class="arena-panel" id="arenaPanel" style="display: none;">
         <div class="vs-players">
             <div class="player-row player1" id="player1Row">
                 <div class="player-info">
-                    <a class="player-handle" id="p1Handle" target="_blank">player1</a>
+                    <a class="player-handle" id="p1Handle" target="_blank">Waiting</a>
                     <span class="player-rank" id="p1Rank"></span>
                 </div>
                 <span class="player-score" id="p1Score">0</span>
@@ -80,15 +158,11 @@
             </div>
             <div class="player-row player2" id="player2Row">
                 <div class="player-info">
-                    <a class="player-handle" id="p2Handle" target="_blank">player2</a>
+                    <a class="player-handle" id="p2Handle" target="_blank">Waiting</a>
                     <span class="player-rank" id="p2Rank"></span>
                 </div>
                 <span class="player-score" id="p2Score">0</span>
                 <span class="solved-badge">✓ SOLVED</span>
-            </div>
-            
-            <div class="api-status" id="apiStatus">
-                ⏳ Waiting for battle to start...
             </div>
         </div>
         
@@ -101,40 +175,12 @@
             <div class="problem-rating-badge" id="probRating">Rating: 1200</div>
             
             <div class="problem-link">
-                <a href="#" target="_blank" id="problemUrl" style="pointer-events: none; opacity: 0.7;">🔗 Open Problem on Codeforces</a>
+                <a href="#" target="_blank" id="problemUrl" style="pointer-events: none; opacity: 0.7;">🔗 Open Problem</a>
             </div>
             
             <div id="lockStatus" class="problem-lock-status">🔓 open · waiting solve</div>
             <div id="breakTimer" class="break-timer" style="display: none;">⏳ break 1:00</div>
-            <div style="margin-top: 12px; color: #b0d1f0;" id="subNote"></div>
         </div>
-    </div>
-
-    <!-- Problems Configuration Section -->
-    <div class="problems-section">
-        <div class="problems-header">
-            <h2>📋 Problem Set Configuration</h2>
-            <button class="add-problem-btn" id="addProblemBtn">➕ Add Problem</button>
-        </div>
-        <table class="problems-table">
-            <thead>
-                <tr>
-                    <th>Problem</th>
-                    <th>Points (1+)</th>
-                    <th>Rating (100 increments)</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody id="problemsBody"></tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Countdown Modal -->
-<div class="countdown-modal" id="countdownModal">
-    <div class="countdown-content">
-        <div class="countdown-number" id="countdownNumber">10</div>
-        <div class="countdown-text">Get Ready!</div>
     </div>
 </div>
 
@@ -142,7 +188,7 @@
 <div class="password-modal" id="passwordModal">
     <div class="password-content">
         <h2>⛔ Cancel Game</h2>
-        <p style="color: #ffd966; margin-bottom: 10px;">Enter admin password to cancel:</p>
+        <p>Enter admin password to cancel:</p>
         <input type="password" class="password-input" id="passwordInput" placeholder="Enter password">
         <div class="password-buttons">
             <button class="password-btn confirm-btn" id="confirmCancel">Confirm</button>
@@ -151,7 +197,22 @@
     </div>
 </div>
 
-<!-- Notification Container for Desktop Notifications -->
+<!-- Room Password Display Modal -->
+<div class="password-modal" id="roomPasswordModal" style="display: none;">
+    <div class="password-content" style="border-color: #4d9eff;">
+        <h2 style="color: #4d9eff;">🔑 Room Created!</h2>
+        <p>Share this information with your opponent:</p>
+        <div style="background: #0a1b28; padding: 20px; border-radius: 20px; margin: 20px 0;">
+            <div style="font-size: 1.2rem; color: #aaccff;">Room ID:</div>
+            <div style="font-size: 2.5rem; font-weight: 800; color: #ffd966; letter-spacing: 5px;" id="createdRoomId"></div>
+            <div style="font-size: 1.2rem; color: #aaccff; margin-top: 15px;">Password:</div>
+            <div style="font-size: 2rem; font-weight: 800; color: #44dd88; letter-spacing: 3px;" id="createdRoomPassword"></div>
+        </div>
+        <button class="password-btn confirm-btn" id="closeRoomPasswordModal" style="background: #4d9eff;">OK</button>
+    </div>
+</div>
+
+<!-- Notification Container -->
 <div class="notification-center" id="notificationCenter"></div>
 
 <!-- Celebration Modal -->
@@ -159,7 +220,7 @@
     <div class="celebration-content">
         <h2>🏆 WINNER 🏆</h2>
         <div class="winner-handle" id="winnerHandle"></div>
-        <p style="font-size: 1.5rem; color: #ffd966;">Congratulations!</p>
+        <p>Congratulations!</p>
         <button id="closeCelebration">Play Again</button>
     </div>
 </div>
