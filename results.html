@@ -39,6 +39,18 @@
             display: flex;
             gap: 15px;
         }
+        .back-btn {
+            background: #2b5270;
+            color: white;
+            text-decoration: none;
+            padding: 12px 25px;
+            border-radius: 40px;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+        .back-btn:hover {
+            background: #3d6f96;
+        }
         .clear-btn {
             background: #b14e4e;
             color: white;
@@ -237,6 +249,7 @@
         <div class="header">
             <h1>📊 Blitz Cup Results Archive</h1>
             <div class="header-buttons">
+                <a href="index.html" class="back-btn">← Back to Arena</a>
                 <button class="clear-btn" id="clearAllBtn">Clear All</button>
             </div>
         </div>
@@ -273,11 +286,10 @@
         </table>
     </div>
 
-    <!-- Password Modal for Clear All -->
     <div class="password-modal" id="adminPasswordModal">
         <div class="password-content">
             <h2>⛔ Admin Access</h2>
-            <p style="color: #ffd966; margin-bottom: 10px;">Enter admin password to clear all results:</p>
+            <p>Enter admin password to clear all results:</p>
             <input type="password" class="password-input" id="adminPasswordInput" placeholder="Enter password">
             <div class="password-buttons">
                 <button class="password-btn confirm-btn" id="confirmAdminPassword">Confirm</button>
@@ -286,7 +298,6 @@
         </div>
     </div>
 
-    <!-- Detail Modal -->
     <div class="modal" id="detailModal">
         <div class="modal-content">
             <h2 id="modalTitle">Blitz Details</h2>
@@ -296,7 +307,7 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'https://blitzing-2.onrender.com/api';
+        const API_BASE_URL = window.location.origin;
         const CANCEL_PASSWORD = 'PUC103815';
         
         const modal = document.getElementById('detailModal');
@@ -326,7 +337,7 @@
 
         async function loadResults() {
             try {
-                const response = await fetch(`${API_BASE_URL}/results`);
+                const response = await fetch(`${API_BASE_URL}/api/results`);
                 const results = await response.json();
                 
                 displayStats(results);
@@ -418,13 +429,13 @@
                         </div>
                         <div style="display: flex; gap: 20px;">
                             <div style="flex: 1;">
-                                <a href="https://codeforces.com/profile/${result.player1.handle}" target="_blank" style="color: ${getRankColor(result.player1.rank)}; text-decoration: none;">
+                                <a href="https://codeforces.com/profile/${result.player1.handle}" target="_blank" style="color: ${getRankColor(result.player1.rank)};">
                                     ${result.player1.handle}
                                 </a>: 
                                 ${p.p1Result.solved ? '✅' : '❌'}
                             </div>
                             <div style="flex: 1;">
-                                <a href="https://codeforces.com/profile/${result.player2.handle}" target="_blank" style="color: ${getRankColor(result.player2.rank)}; text-decoration: none;">
+                                <a href="https://codeforces.com/profile/${result.player2.handle}" target="_blank" style="color: ${getRankColor(result.player2.rank)};">
                                     ${result.player2.handle}
                                 </a>: 
                                 ${p.p2Result.solved ? '✅' : '❌'}
@@ -459,7 +470,7 @@
                 
                 if (confirm('Are you sure you want to clear all results? This cannot be undone.')) {
                     try {
-                        const response = await fetch(`${API_BASE_URL}/results`, {
+                        const response = await fetch(`${API_BASE_URL}/api/results`, {
                             method: 'DELETE'
                         });
                         if (response.ok) {
