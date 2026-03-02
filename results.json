@@ -1,0 +1,116 @@
+[
+  {
+    "blitzNumber": 10,
+    "date": "2026-03-02T13:16:03.196Z",
+    "player1": {
+      "handle": "raif_chy",
+      "score": 0,
+      "rank": "Newbie"
+    },
+    "player2": {
+      "handle": "ELSE_IF_TRIDIB21",
+      "score": 0,
+      "rank": "Newbie"
+    },
+    "winner": "tie",
+    "problems": [
+      {
+        "points": 500,
+        "rating": 800,
+        "p1Result": {
+          "attempts": 0,
+          "solved": false
+        },
+        "p2Result": {
+          "attempts": 0,
+          "solved": false
+        }
+      }
+    ],
+    "duration": 3
+  },
+  {
+    "blitzNumber": 11,
+    "date": "2026-03-02T13:37:38.764Z",
+    "player1": {
+      "handle": "raif_chy",
+      "score": 500,
+      "rank": ""
+    },
+    "player2": {
+      "handle": "ELSE_IF_TRIDIB21",
+      "score": 0,
+      "rank": ""
+    },
+    "winner": "raif_chy",
+    "problems": [
+      {
+        "points": 500,
+        "rating": 800,
+        "p1Result": {
+          "attempts": 7,
+          "solved": true
+        },
+        "p2Result": {
+          "attempts": 0,
+          "solved": false
+        }
+      },
+      {
+        "points": 500,
+        "rating": 800,
+        "p1Result": {
+          "attempts": 0,
+          "solved": false
+        },
+        "p2Result": {
+          "attempts": 0,
+          "solved": false
+        }
+      }
+    ],
+    "duration": 4
+  },
+  {
+    "blitzNumber": 12,
+    "date": "2026-03-02T13:52:50.915Z",
+    "player1": {
+      "handle": "raif_chy",
+      "score": 500,
+      "rank": "Newbie"
+    },
+    "player2": {
+      "handle": "ELSE_IF_TRIDIB21",
+      "score": 0,
+      "rank": "Newbie"
+    },
+    "winner": "raif_chy",
+    "problems": [
+      {
+        "points": 500,
+        "rating": 800,
+        "p1Result": {
+          "attempts": 3,
+          "solved": true
+        },
+        "p2Result": {
+          "attempts": 0,
+          "solved": false
+        }
+      },
+      {
+        "points": 500,
+        "rating": 800,
+        "p1Result": {
+          "attempts": 0,
+          "solved": false
+        },
+        "p2Result": {
+          "attempts": 0,
+          "solved": false
+        }
+      }
+    ],
+    "duration": 4
+  }
+]
