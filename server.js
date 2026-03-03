@@ -99,10 +99,24 @@ function normalizeBracketRoomConfig(rawConfig = {}) {
     const durationRaw = Number(rawConfig.duration);
     const intervalRaw = Number(rawConfig.interval);
 
+    const providedProblems = Array.isArray(rawConfig.problems)
+        ? rawConfig.problems
+            .map(problem => ({
+                points: Math.max(1, Number(problem?.points) || 1),
+                rating: Math.max(800, Math.min(3500, Number(problem?.rating) || 800))
+            }))
+            .filter(problem => Number.isFinite(problem.points) && Number.isFinite(problem.rating))
+        : [];
+
+    const normalizedProblemCount = providedProblems.length > 0
+        ? providedProblems.length
+        : (Number.isFinite(problemCountRaw) ? Math.max(1, Math.min(20, Math.floor(problemCountRaw))) : 7);
+
     return {
-        problemCount: Number.isFinite(problemCountRaw) ? Math.max(1, Math.min(20, Math.floor(problemCountRaw))) : 7,
+        problemCount: normalizedProblemCount,
         duration: Number.isFinite(durationRaw) ? Math.max(2, Math.min(60, Math.floor(durationRaw))) : 40,
-        interval: Number.isFinite(intervalRaw) ? Math.max(1, Math.min(10, Math.floor(intervalRaw))) : 1
+        interval: Number.isFinite(intervalRaw) ? Math.max(1, Math.min(10, Math.floor(intervalRaw))) : 1,
+        problems: providedProblems
     };
 }
 
@@ -1694,7 +1708,7 @@ app.post('/api/brackets/:bracketId/matches/:matchId/create-room', async (req, re
             roomName: `${bracket.name} · ${match.label} · ${match.p1} vs ${match.p2}`,
             duration: Number(body.duration) || roomConfig.duration,
             interval: Number(body.interval) || roomConfig.interval,
-            problems: Array.isArray(body.problems) ? body.problems : [],
+            problems: Array.isArray(body.problems) ? body.problems : (Array.isArray(roomConfig.problems) ? roomConfig.problems : []),
             problemCount: Number(body.problemCount) || roomConfig.problemCount
         });
 

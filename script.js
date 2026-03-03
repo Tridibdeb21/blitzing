@@ -627,11 +627,25 @@
             const problemNumber = Number(problemNumberStr) || 0;
             if (problemNumber < 1 || problemNumber > problems.length) return;
 
+            const problemIndex = problemNumber - 1;
+            if (!problemResults.p1[problemIndex]) {
+                problemResults.p1[problemIndex] = { attempts: 0, solved: false, pending: false };
+            }
+            if (!problemResults.p2[problemIndex]) {
+                problemResults.p2[problemIndex] = { attempts: 0, solved: false, pending: false };
+            }
+
             const problemPoints = problems[problemNumber - 1]?.points || selectedProblems[problemNumber - 1]?.points || 0;
             if (winnerHandle === player1Handle) {
                 player1Score += problemPoints;
+                problemResults.p1[problemIndex].solved = true;
+                problemResults.p1[problemIndex].pending = false;
+                p1SolvedProblems.add(String(problemNumber));
             } else if (winnerHandle === player2Handle) {
                 player2Score += problemPoints;
+                problemResults.p2[problemIndex].solved = true;
+                problemResults.p2[problemIndex].pending = false;
+                p2SolvedProblems.add(String(problemNumber));
             }
         });
 
