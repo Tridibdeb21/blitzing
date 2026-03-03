@@ -167,6 +167,11 @@ body {
     background: #152033;
 }
 
+.results-table tr.focused-result-row td {
+    background: #1b2a42;
+    box-shadow: inset 0 0 0 1px #6ea8fe;
+}
+
 .player-link,
 .problem-link {
     color: #9dc4ff;

@@ -148,8 +148,57 @@ h1 {
 .create-options {
     margin-top: 10px;
     display: grid;
-    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
     gap: 8px;
+}
+
+.config-group {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    background: var(--panel);
+}
+
+.problems-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+    margin-bottom: 8px;
+}
+
+.create-problem-item {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 8px;
+    align-items: center;
+    background: #141b27;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+}
+
+.create-problem-item input,
+.create-problem-item select {
+    width: 100%;
+}
+
+.remove-create-problem {
+    background: transparent;
+    color: #ff7d7d;
+    border: 1px solid #4f2d33;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    padding: 0;
+    cursor: pointer;
+}
+
+.remove-create-problem:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 label {
@@ -356,6 +405,32 @@ textarea {
     margin: 6px 0;
 }
 
+.match-points {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    color: var(--muted);
+}
+
+.match-history-link {
+    display: inline-block;
+    margin-top: 6px;
+    color: #9dc4ff;
+    text-decoration: none;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.match-history-link:hover,
+.match-history-link-btn:hover {
+    text-decoration: underline;
+}
+
+.match-history-link-btn {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
 .table-wrap {
     overflow: auto;
 }
@@ -490,5 +565,19 @@ tr:first-child td {
     .type-grid,
     .form-grid {
         grid-template-columns: 1fr;
+    }
+
+    .create-options {
+        grid-template-columns: 1fr;
+    }
+
+    .create-problem-item {
+        grid-template-columns: 1fr;
+    }
+
+    .remove-create-problem {
+        width: 100%;
+        height: auto;
+        padding: 8px;
     }
 }

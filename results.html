@@ -99,6 +99,7 @@
         const adminPasswordInput = document.getElementById('adminPasswordInput');
         const confirmAdminPassword = document.getElementById('confirmAdminPassword');
         const cancelAdminPassword = document.getElementById('cancelAdminPassword');
+        const focusRoomId = (new URLSearchParams(window.location.search).get('roomId') || '').trim().toUpperCase();
 
         function getRankColor(rank) {
             const colors = {
@@ -246,9 +247,10 @@
                 const date = new Date(r.date);
                 const formattedDate = date.toLocaleDateString();
                 const formattedTime = date.toLocaleTimeString();
+                const rowRoomId = String(r.roomId || '').toUpperCase();
 
                 return `
-                <tr>
+                <tr data-room-id="${rowRoomId}">
                     <td><strong>#${r.blitzNumber}</strong></td>
                     <td>
                         ${formattedDate}<br>
@@ -270,6 +272,14 @@
                     <td><button class="details-btn" onclick='showDetails(${JSON.stringify(r).replace(/'/g, "\\'")})'>View</button></td>
                 </tr>
             `}).join('');
+
+            if (focusRoomId) {
+                const targetRow = tbody.querySelector(`tr[data-room-id="${focusRoomId}"]`);
+                if (targetRow) {
+                    targetRow.classList.add('focused-result-row');
+                    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
         }
 
         function showDetails(result) {

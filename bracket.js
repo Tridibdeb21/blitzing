@@ -8,21 +8,101 @@
     const shuffleNamesBtn = document.getElementById('shuffleNamesBtn');
     const shuffledNamesPreview = document.getElementById('shuffledNamesPreview');
     const tournamentName = document.getElementById('tournamentName');
-    const defaultMatchProblems = document.getElementById('defaultMatchProblems');
     const defaultMatchDuration = document.getElementById('defaultMatchDuration');
     const defaultMatchInterval = document.getElementById('defaultMatchInterval');
+    const bracketProblemsList = document.getElementById('bracketProblemsList');
+    const bracketAddProblemBtn = document.getElementById('bracketAddProblemBtn');
     const outputPanel = document.getElementById('outputPanel');
     const outputTitle = document.getElementById('outputTitle');
     const outputMeta = document.getElementById('outputMeta');
     const outputContent = document.getElementById('outputContent');
     const savedBracketsList = document.getElementById('savedBracketsList');
     const expandedBracketIds = new Set();
+    const ratingOptions = [800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600];
+    let bracketProblems = [
+        { points: 2, rating: 800 },
+        { points: 3, rating: 800 },
+        { points: 4, rating: 900 },
+        { points: 6, rating: 1000 },
+        { points: 8, rating: 1000 },
+        { points: 10, rating: 1100 },
+        { points: 12, rating: 1200 }
+    ];
+
+    function normalizeProblemConfigs(configs) {
+        if (!Array.isArray(configs) || configs.length === 0) {
+            return [
+                { points: 2, rating: 800 },
+                { points: 3, rating: 800 },
+                { points: 4, rating: 900 },
+                { points: 6, rating: 1000 },
+                { points: 8, rating: 1000 },
+                { points: 10, rating: 1100 },
+                { points: 12, rating: 1200 }
+            ];
+        }
+
+        return configs.map(item => ({
+            points: Math.max(1, Number(item?.points) || 1),
+            rating: Math.max(800, Math.min(3500, Number(item?.rating) || 800))
+        }));
+    }
+
+    function renderBracketProblems() {
+        if (!bracketProblemsList) return;
+        const html = bracketProblems.map((problem, index) => {
+            const ratingSelect = ratingOptions
+                .map(rating => `<option value="${rating}" ${rating === problem.rating ? 'selected' : ''}>${rating}</option>`)
+                .join('');
+
+            return `
+                <div class="create-problem-item" data-index="${index}">
+                    <input type="number" class="problem-points-create" value="${problem.points}" min="1" max="2000" step="1" placeholder="Points">
+                    <select class="problem-rating-create">${ratingSelect}</select>
+                    <button class="remove-create-problem" ${bracketProblems.length <= 1 ? 'disabled' : ''}>✕</button>
+                </div>
+            `;
+        }).join('');
+
+        bracketProblemsList.innerHTML = html;
+
+        bracketProblemsList.querySelectorAll('.problem-points-create').forEach(input => {
+            input.addEventListener('change', (event) => {
+                const parent = event.target.closest('.create-problem-item');
+                if (!parent) return;
+                const index = Number(parent.dataset.index);
+                bracketProblems[index].points = Math.max(1, Number(event.target.value) || 1);
+            });
+        });
+
+        bracketProblemsList.querySelectorAll('.problem-rating-create').forEach(select => {
+            select.addEventListener('change', (event) => {
+                const parent = event.target.closest('.create-problem-item');
+                if (!parent) return;
+                const index = Number(parent.dataset.index);
+                bracketProblems[index].rating = Number(event.target.value) || 800;
+            });
+        });
+
+        bracketProblemsList.querySelectorAll('.remove-create-problem').forEach(button => {
+            button.addEventListener('click', (event) => {
+                if (bracketProblems.length <= 1) return;
+                const parent = event.target.closest('.create-problem-item');
+                if (!parent) return;
+                const index = Number(parent.dataset.index);
+                bracketProblems.splice(index, 1);
+                renderBracketProblems();
+            });
+        });
+    }
 
     function getBracketRoomConfigFromInputs() {
+        const normalizedProblems = normalizeProblemConfigs(bracketProblems);
         return {
-            problemCount: Math.max(1, Math.min(20, Number(defaultMatchProblems?.value) || 7)),
+            problemCount: normalizedProblems.length,
             duration: Math.max(2, Math.min(60, Number(defaultMatchDuration?.value) || 40)),
-            interval: Math.max(1, Math.min(10, Number(defaultMatchInterval?.value) || 1))
+            interval: Math.max(1, Math.min(10, Number(defaultMatchInterval?.value) || 1)),
+            problems: normalizedProblems
         };
     }
 
@@ -292,10 +372,28 @@
         return `${handle} (${profile.rating})`;
     }
 
+    function getMatchHistoryUrl(match) {
+        if (!match?.roomId) return 'results.html';
+        return `results.html?roomId=${encodeURIComponent(match.roomId)}`;
+    }
+
+    function getMatchPointsSummary(match) {
+        const p1 = match?.result?.player1Score;
+        const p2 = match?.result?.player2Score;
+        const left = Number.isFinite(Number(p1)) ? Number(p1) : null;
+        const right = Number.isFinite(Number(p2)) ? Number(p2) : null;
+
+        if (left === null && right === null) {
+            return `${match?.p1 || 'P1'}: - · ${match?.p2 || 'P2'}: -`;
+        }
+
+        return `${match?.p1 || 'P1'}: ${left ?? '-'} · ${match?.p2 || 'P2'}: ${right ?? '-'}`;
+    }
+
     async function renderBracketPreview(bracket) {
         outputPanel.style.display = 'block';
         outputTitle.textContent = `${bracket.name} · ${String(bracket.type).replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase())}`;
-        const roomConfig = bracket.roomConfig || { problemCount: 7, duration: 40, interval: 1 };
+        const roomConfig = bracket.roomConfig || { problemCount: 7, duration: 40, interval: 1, problems: [] };
         outputMeta.textContent = `${bracket.participants.length} participants · Owner: ${bracket.ownerHandle} · ${roomConfig.problemCount} problems · ${roomConfig.duration}m · ${roomConfig.interval}s check`;
 
         const ratingsMap = await fetchRatingsMap(getAllConcreteHandles([bracket]));
@@ -311,6 +409,8 @@
 
                 const p1Text = renderPlayer(match.p1, ratingsMap);
                 const p2Text = renderPlayer(match.p2, ratingsMap);
+                const historyUrl = getMatchHistoryUrl(match);
+                const pointsText = getMatchPointsSummary(match);
 
                 return `
                     <div class="match-node">
@@ -322,6 +422,8 @@
                             <div class="team-row"><span>${p1Text}</span></div>
                             <div class="vs-row">vs</div>
                             <div class="team-row"><span>${p2Text}</span></div>
+                            <div class="match-points">Points: ${pointsText}</div>
+                            <a class="match-history-link" href="${historyUrl}" target="_blank" rel="noopener noreferrer">History</a>
                         </div>
                     </div>
                 `;
@@ -371,6 +473,8 @@
 
                         const p1Text = renderPlayer(match.p1, ratingsMap);
                         const p2Text = renderPlayer(match.p2, ratingsMap);
+                        const historyUrl = getMatchHistoryUrl(match);
+                        const pointsText = getMatchPointsSummary(match);
 
                         return `
                             <div class="match-node">
@@ -382,10 +486,12 @@
                                     <div class="team-row"><span>${p1Text}</span></div>
                                     <div class="vs-row">vs</div>
                                     <div class="team-row"><span>${p2Text}</span></div>
+                                    <div class="match-points">Points: ${pointsText}</div>
                                     <div class="saved-actions" style="margin-top:8px;">
                                         <button class="small-btn primary create-room-btn" ${createDisabled ? 'disabled' : ''}>
                                             ${createLabel}
                                         </button>
+                                        <a class="small-btn match-history-link-btn" href="${historyUrl}" target="_blank" rel="noopener noreferrer">History</a>
                                     </div>
                                 </div>
                             </div>
@@ -416,7 +522,7 @@
                             </div>
                         </div>
                         <div class="saved-details" style="display:${isExpanded ? 'block' : 'none'};">
-                            <div class="saved-meta" style="margin-bottom:10px;">${bracket.type} · ${bracket.participants.length} participants · Owner: ${bracket.ownerHandle} · ${(bracket.roomConfig?.problemCount ?? 7)} problems · ${(bracket.roomConfig?.duration ?? 40)}m · ${(bracket.roomConfig?.interval ?? 1)}s check</div>
+                            <div class="saved-meta" style="margin-bottom:10px;">${bracket.type} · ${bracket.participants.length} participants · Owner: ${bracket.ownerHandle} · ${(bracket.roomConfig?.problemCount ?? bracket.roomConfig?.problems?.length ?? 7)} problems · ${(bracket.roomConfig?.duration ?? 40)}m · ${(bracket.roomConfig?.interval ?? 1)}s check</div>
                             <div class="bracket-tree">${matchesHtml}</div>
                         </div>
                     </div>
@@ -555,6 +661,13 @@
         });
     }
 
+    if (bracketAddProblemBtn) {
+        bracketAddProblemBtn.addEventListener('click', () => {
+            bracketProblems.push({ points: 500, rating: 1200 });
+            renderBracketProblems();
+        });
+    }
+
     participantsInput.addEventListener('input', () => {
         if (shuffledNamesPreview && shuffledNamesPreview.style.display !== 'none') {
             shuffledNamesPreview.style.display = 'none';
@@ -613,6 +726,7 @@
     });
 
     loadBrackets();
+    renderBracketProblems();
     ensureNotificationPermission();
     window.addEventListener('resize', () => {
         drawAllTreeConnections();
