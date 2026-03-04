@@ -141,11 +141,12 @@ label {
     border: 1px solid var(--border);
     border-radius: 999px;
     padding: 8px 12px;
-    background: var(--panel);
+    background: transparent;
     color: var(--text);
     text-decoration: none;
     font-weight: 600;
     white-space: nowrap;
+    cursor: pointer;
 }
 
 .global-handle-chip.not-verified {
@@ -167,8 +168,8 @@ label {
 }
 
 .global-handle-avatar {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     border-radius: 999px;
     border: 1px solid var(--border);
     object-fit: cover;
@@ -378,6 +379,12 @@ input {
     cursor: pointer;
 }
 
+.user-profile-actions {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+}
+
 .user-profile-logout-btn:hover {
     filter: brightness(1.05);
 }
@@ -479,6 +486,11 @@ input {
     font-size: 0.72rem;
     opacity: 0.78;
     letter-spacing: 0.03em;
+}
+
+.password-content.user-profile-content {
+    width: min(600px, 100%);
+    max-width: 600px;
 }
 
 @media (max-width: 860px) {

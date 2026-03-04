@@ -121,6 +121,291 @@ body::-webkit-scrollbar {
     justify-content: flex-start;
 }
 
+.password-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 7, 11, 0.74);
+    padding: 16px;
+}
+
+.password-content {
+    width: min(560px, 100%);
+    padding: 22px;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(18, 23, 32, 0.98), rgba(18, 23, 32, 0.94));
+    box-shadow: 0 22px 44px rgba(0, 0, 0, 0.45);
+    color: var(--text);
+}
+
+.password-content h2 {
+    margin-bottom: 10px;
+}
+
+.password-buttons {
+    margin-top: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+
+.password-btn {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    background: #1b2232;
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.user-profile-actions {
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.user-profile-actions .user-profile-logout-btn {
+    margin-right: 0;
+}
+
+.user-profile-actions .password-btn {
+    width: auto;
+    min-width: 86px;
+}
+
+.cancel-btn {
+    background: #1b2232;
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+.user-profile-logout-btn {
+    background: linear-gradient(180deg, #ff9a9a, #ff7d7d);
+    color: #230505;
+    border-color: #ff7d7d;
+}
+
+.user-profile-content {
+    width: min(980px, 100%);
+    max-height: 92vh;
+    overflow: auto;
+    text-align: left;
+}
+
+.user-profile-body {
+    margin-top: 8px;
+}
+
+.user-profile-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.user-profile-head-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    min-width: 0;
+    text-align: left;
+}
+
+.user-profile-handle-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+}
+
+.user-profile-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    object-fit: cover;
+}
+
+.user-profile-handle {
+    font-size: 1.05rem;
+    font-weight: 700;
+    text-align: left;
+}
+
+.user-profile-rank {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.user-presence {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    margin-top: 2px;
+}
+
+.presence-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    display: inline-block;
+    background: #8a8f99;
+}
+
+.user-presence.status-active {
+    color: #5acb8a;
+}
+
+.user-presence.status-active .presence-dot {
+    background: #5acb8a;
+}
+
+.user-presence.status-offline {
+    color: var(--muted);
+}
+
+.user-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+    gap: 8px;
+}
+
+.user-profile-item {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #141b27;
+    padding: 8px 10px;
+}
+
+.user-profile-item span {
+    display: block;
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-bottom: 4px;
+}
+
+.user-profile-item strong {
+    font-size: 0.95rem;
+}
+
+.user-profile-links {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.user-profile-links a {
+    color: #9dc4ff;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.user-profile-links a:hover {
+    text-decoration: underline;
+}
+
+.user-profile-site {
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+}
+
+.user-profile-site h4 {
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.user-stats-handle {
+    color: #9dc4ff;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.user-stats-handle:hover {
+    text-decoration: underline;
+}
+
+.user-recent-wrap {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    background: #141b27;
+}
+
+.user-recent-title {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-bottom: 6px;
+}
+
+.user-recent-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.user-recent-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    font-size: 0.86rem;
+}
+
+.user-recent-outcome {
+    min-width: 22px;
+    text-align: center;
+    border-radius: 999px;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    font-weight: 700;
+}
+
+.user-recent-outcome.win {
+    color: #5acb8a;
+}
+
+.user-recent-outcome.loss {
+    color: #ff7d7d;
+}
+
+.user-recent-outcome.tie {
+    color: #9dc4ff;
+}
+
+.user-recent-opponent {
+    color: var(--text);
+}
+
+.user-recent-score {
+    color: var(--muted);
+}
+
+.user-recent-link {
+    color: #9dc4ff;
+    text-decoration: none;
+}
+
+.user-recent-empty {
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
 .global-profile-modal {
     position: fixed;
     inset: 0;
@@ -152,7 +437,7 @@ body::-webkit-scrollbar {
 .global-profile-modal-actions {
     margin-top: 12px;
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
 }
 
 .global-profile-modal-close {
@@ -172,7 +457,6 @@ body::-webkit-scrollbar {
     color: #230505;
     cursor: pointer;
     font-weight: 700;
-    margin-right: 8px;
 }
 
 .global-profile-head {

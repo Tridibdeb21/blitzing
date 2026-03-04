@@ -648,11 +648,33 @@ function canCreateBracketRoom(bracket, match, requesterHandle, adminPassword = '
     const requester = normalizeHandle(requesterHandle);
     if (!requester) return false;
 
-    const owner = normalizeHandle(bracket?.ownerHandle);
     const p1 = normalizeHandle(match?.p1);
     const p2 = normalizeHandle(match?.p2);
 
-    return requester === owner || requester === p1 || requester === p2;
+    return requester === p1 || requester === p2;
+}
+
+function resolveBracketRoomPlayers(match, requesterHandle, isAdminRequest = false) {
+    const p1 = String(match?.p1 || '').trim();
+    const p2 = String(match?.p2 || '').trim();
+    if (!p1 || !p2) {
+        return { hostHandle: p1, opponentHandle: p2 };
+    }
+
+    if (isAdminRequest) {
+        return { hostHandle: p1, opponentHandle: p2 };
+    }
+
+    const requester = normalizeHandle(requesterHandle);
+    if (!requester) {
+        return { hostHandle: p1, opponentHandle: p2 };
+    }
+
+    if (normalizeHandle(p2) === requester) {
+        return { hostHandle: p2, opponentHandle: p1 };
+    }
+
+    return { hostHandle: p1, opponentHandle: p2 };
 }
 
 function getBracketUsedProblemIds(bracket) {
@@ -3340,8 +3362,10 @@ app.post('/api/brackets/:bracketId/matches/:matchId/create-room', async (req, re
             return;
         }
 
+        const adminRequest = isAdminRequester(requesterHandle, adminPassword, req);
+
         if (!canCreateBracketRoom(bracket, match, requesterHandle, adminPassword, req)) {
-            res.status(403).json({ error: 'Only match players, bracket creator, or admin can create match rooms' });
+            res.status(403).json({ error: 'Only assigned match players or admin can create match rooms' });
             return;
         }
 
@@ -3378,9 +3402,11 @@ app.post('/api/brackets/:bracketId/matches/:matchId/create-room', async (req, re
             ...bracketUsedProblemIds
         ]));
 
+        const participants = resolveBracketRoomPlayers(match, requesterHandle, adminRequest);
+
         const room = await createBracketRoom({
-            hostHandle: match.p1,
-            opponentHandle: match.p2,
+            hostHandle: participants.hostHandle,
+            opponentHandle: participants.opponentHandle,
             roomName: `${bracket.name} · ${match.label} · ${match.p1} vs ${match.p2}`,
             duration: Number(body.duration) || roomConfig.duration,
             interval: Number(body.interval) || roomConfig.interval,

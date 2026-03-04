@@ -23,6 +23,7 @@
             ties: 0,
             winRate: '0.0',
             avgScore: '0.0',
+            totalScore: 0,
             streak: '-',
             opponents: [],
             recentMatches: []
@@ -156,6 +157,7 @@
             ties,
             winRate: played > 0 ? ((wins / played) * 100).toFixed(1) : '0.0',
             avgScore: played > 0 ? (scoreSum / played).toFixed(1) : '0.0',
+            totalScore: scoreSum,
             streak,
             opponents,
             recentMatches
