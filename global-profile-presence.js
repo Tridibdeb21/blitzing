@@ -6,6 +6,16 @@
     const AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
     const PRESENCE_PING_INTERVAL_MS = 30000;
     const API_BASE_URL = window.location.origin;
+    const STORAGE_ENC_PREFIX = 'enc:v1:';
+    const STORAGE_ENC_SECRET = 'blitz_storage_v1';
+    const ENCRYPTED_STORAGE_KEYS = new Set([
+        'blitzUserHandle',
+        'blitzUserAvatar',
+        'blitzRoomState',
+        'blitzBattleRuntimeState',
+        'blitzPendingJoinRoomId',
+        'blitzAuthMeta'
+    ]);
 
     let pingTimer = null;
     let pingInFlight = false;
@@ -21,8 +31,94 @@
             .replace(/'/g, '&#39;');
     }
 
+    function shouldEncryptStorageKey(key) {
+        return ENCRYPTED_STORAGE_KEYS.has(String(key || ''));
+    }
+
+    function toBase64FromBytes(bytes) {
+        let binary = '';
+        for (let index = 0; index < bytes.length; index += 1) {
+            binary += String.fromCharCode(bytes[index]);
+        }
+        return btoa(binary);
+    }
+
+    function fromBase64ToBytes(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+            bytes[index] = binary.charCodeAt(index);
+        }
+        return bytes;
+    }
+
+    function xorBytes(inputBytes, keyBytes) {
+        const output = new Uint8Array(inputBytes.length);
+        for (let index = 0; index < inputBytes.length; index += 1) {
+            output[index] = inputBytes[index] ^ keyBytes[index % keyBytes.length];
+        }
+        return output;
+    }
+
+    function encryptStorageValue(plainText) {
+        const text = String(plainText ?? '');
+        const encoder = new TextEncoder();
+        const valueBytes = encoder.encode(text);
+        const keyBytes = encoder.encode(STORAGE_ENC_SECRET);
+        const encrypted = xorBytes(valueBytes, keyBytes);
+        return `${STORAGE_ENC_PREFIX}${toBase64FromBytes(encrypted)}`;
+    }
+
+    function decryptStorageValue(rawValue) {
+        const raw = String(rawValue ?? '');
+        if (!raw.startsWith(STORAGE_ENC_PREFIX)) {
+            return null;
+        }
+
+        try {
+            const payload = raw.slice(STORAGE_ENC_PREFIX.length);
+            const encrypted = fromBase64ToBytes(payload);
+            const encoder = new TextEncoder();
+            const keyBytes = encoder.encode(STORAGE_ENC_SECRET);
+            const decrypted = xorBytes(encrypted, keyBytes);
+            const decoder = new TextDecoder();
+            return decoder.decode(decrypted);
+        } catch {
+            return '';
+        }
+    }
+
+    function storageGetItem(key) {
+        const raw = localStorage.getItem(key);
+        if (raw == null) return null;
+        if (!shouldEncryptStorageKey(key)) return raw;
+
+        const decrypted = decryptStorageValue(raw);
+        if (decrypted == null) {
+            try {
+                localStorage.setItem(key, encryptStorageValue(raw));
+            } catch {
+            }
+            return raw;
+        }
+        return decrypted;
+    }
+
+    function storageSetItem(key, value) {
+        const nextValue = String(value ?? '');
+        if (!shouldEncryptStorageKey(key)) {
+            localStorage.setItem(key, nextValue);
+            return;
+        }
+        localStorage.setItem(key, encryptStorageValue(nextValue));
+    }
+
+    function storageRemoveItem(key) {
+        localStorage.removeItem(key);
+    }
+
     function readAuthMeta() {
-        const raw = localStorage.getItem(AUTH_META_KEY);
+        const raw = storageGetItem(AUTH_META_KEY);
         if (!raw) return null;
         try {
             const parsed = JSON.parse(raw);
@@ -44,12 +140,12 @@
     }
 
     function clearAuthSessionStorage() {
-        localStorage.removeItem(HANDLE_STORAGE_KEY);
-        localStorage.removeItem(AVATAR_STORAGE_KEY);
-        localStorage.removeItem('blitzRoomState');
-        localStorage.removeItem('blitzBattleRuntimeState');
-        localStorage.removeItem('blitzPendingJoinRoomId');
-        localStorage.removeItem(AUTH_META_KEY);
+        storageRemoveItem(HANDLE_STORAGE_KEY);
+        storageRemoveItem(AVATAR_STORAGE_KEY);
+        storageRemoveItem('blitzRoomState');
+        storageRemoveItem('blitzBattleRuntimeState');
+        storageRemoveItem('blitzPendingJoinRoomId');
+        storageRemoveItem(AUTH_META_KEY);
     }
 
     async function logoutServerSession() {
@@ -72,7 +168,7 @@
 
             const data = await response.json();
             if (!data || !data.authenticated || !data.handle) {
-                if (String(localStorage.getItem(HANDLE_STORAGE_KEY) || '').trim()) {
+                if (String(storageGetItem(HANDLE_STORAGE_KEY) || '').trim()) {
                     clearAuthSessionStorage();
                 }
                 return;
@@ -81,11 +177,12 @@
             const serverHandle = String(data.handle || '').trim();
             if (!serverHandle) return;
 
-            if (!String(localStorage.getItem(HANDLE_STORAGE_KEY) || '').trim()) {
-                localStorage.setItem(HANDLE_STORAGE_KEY, serverHandle);
+            const localHandle = String(storageGetItem(HANDLE_STORAGE_KEY) || '').trim();
+            if (!localHandle || localHandle.toLowerCase() !== serverHandle.toLowerCase()) {
+                storageSetItem(HANDLE_STORAGE_KEY, serverHandle);
             }
 
-            localStorage.setItem(AUTH_META_KEY, JSON.stringify({
+            storageSetItem(AUTH_META_KEY, JSON.stringify({
                 issuedAt: Date.now(),
                 deployToken: AUTH_DEPLOY_TOKEN
             }));
@@ -94,7 +191,7 @@
     }
 
     function enforceAuthPolicy() {
-        const handle = String(localStorage.getItem(HANDLE_STORAGE_KEY) || '').trim();
+        const handle = String(storageGetItem(HANDLE_STORAGE_KEY) || '').trim();
         if (!handle) return;
         if (!isAuthSessionValid()) {
             clearAuthSessionStorage();
@@ -104,8 +201,8 @@
     function renderGlobalHandleChip() {
         const chips = document.querySelectorAll('[data-global-handle-chip]');
         enforceAuthPolicy();
-        const handle = String(localStorage.getItem(HANDLE_STORAGE_KEY) || '').trim();
-        const avatar = String(localStorage.getItem(AVATAR_STORAGE_KEY) || '').trim();
+        const handle = String(storageGetItem(HANDLE_STORAGE_KEY) || '').trim();
+        const avatar = String(storageGetItem(AVATAR_STORAGE_KEY) || '').trim();
 
         if (!chips.length) return;
 
@@ -358,7 +455,7 @@
 
     async function pingPresence(force = false) {
         enforceAuthPolicy();
-        const handle = String(localStorage.getItem(HANDLE_STORAGE_KEY) || '').trim();
+        const handle = String(storageGetItem(HANDLE_STORAGE_KEY) || '').trim();
         if (!handle) return;
         if (pingInFlight && !force) return;
 
@@ -416,7 +513,7 @@
 
         event.preventDefault();
         enforceAuthPolicy();
-        const handle = String(localStorage.getItem(HANDLE_STORAGE_KEY) || '').trim();
+        const handle = String(storageGetItem(HANDLE_STORAGE_KEY) || '').trim();
         if (!handle) return;
         openGlobalProfileModal(handle).catch(() => {});
     });

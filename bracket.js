@@ -2,6 +2,8 @@
     const API_BASE_URL = window.location.origin;
     const OWNER_KEY = 'blitzUserHandle';
     const ADMIN_HANDLES = new Set(['else_if_tridib21', 'mishkatit']);
+    const STORAGE_ENC_PREFIX = 'enc:v1:';
+    const STORAGE_ENC_SECRET = 'blitz_storage_v1';
 
     const typeGrid = document.getElementById('typeGrid');
     const generateBracketBtn = document.getElementById('generateBracketBtn');
@@ -240,8 +242,49 @@
         document.querySelectorAll('.bracket-tree').forEach(tree => drawTreeConnections(tree));
     }
 
+    function decodeStoredValue(rawValue) {
+        const raw = String(rawValue ?? '');
+        if (!raw.startsWith(STORAGE_ENC_PREFIX)) return raw;
+        try {
+            const payload = raw.slice(STORAGE_ENC_PREFIX.length);
+            const binary = atob(payload);
+            const encrypted = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                encrypted[index] = binary.charCodeAt(index);
+            }
+
+            const encoder = new TextEncoder();
+            const keyBytes = encoder.encode(STORAGE_ENC_SECRET);
+            const plainBytes = new Uint8Array(encrypted.length);
+            for (let index = 0; index < encrypted.length; index += 1) {
+                plainBytes[index] = encrypted[index] ^ keyBytes[index % keyBytes.length];
+            }
+
+            return new TextDecoder().decode(plainBytes);
+        } catch {
+            return '';
+        }
+    }
+
+    function encodeStoredValue(plainValue) {
+        const text = String(plainValue ?? '');
+        const encoder = new TextEncoder();
+        const valueBytes = encoder.encode(text);
+        const keyBytes = encoder.encode(STORAGE_ENC_SECRET);
+        const encrypted = new Uint8Array(valueBytes.length);
+        for (let index = 0; index < valueBytes.length; index += 1) {
+            encrypted[index] = valueBytes[index] ^ keyBytes[index % keyBytes.length];
+        }
+
+        let binary = '';
+        for (let index = 0; index < encrypted.length; index += 1) {
+            binary += String.fromCharCode(encrypted[index]);
+        }
+        return `${STORAGE_ENC_PREFIX}${btoa(binary)}`;
+    }
+
     function getCurrentHandle() {
-        return (localStorage.getItem(OWNER_KEY) || '').trim();
+        return String(decodeStoredValue(localStorage.getItem(OWNER_KEY) || '') || '').trim();
     }
 
     function isAdminHandle(handle) {
@@ -868,7 +911,7 @@
 
         const roomId = data.roomId;
         showOsNotification('Bracket Match Room Ready', `Room ${roomId} created. Redirecting to Arena.`);
-        localStorage.setItem('blitzPendingJoinRoomId', roomId);
+        localStorage.setItem('blitzPendingJoinRoomId', encodeStoredValue(roomId));
         window.location.href = 'index.html#roomControls';
     }
 

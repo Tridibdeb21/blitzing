@@ -1,5 +1,7 @@
 (function () {
     const API_BASE_URL = window.location.origin;
+    const STORAGE_ENC_PREFIX = 'enc:v1:';
+    const STORAGE_ENC_SECRET = 'blitz_storage_v1';
 
     const profileHandleInput = document.getElementById('profileHandleInput');
     const openProfileBtn = document.getElementById('openProfileBtn');
@@ -12,8 +14,32 @@
     let listedHandles = [];
     let listedProfilesLoaded = false;
 
+    function decodeStoredValue(rawValue) {
+        const raw = String(rawValue ?? '');
+        if (!raw.startsWith(STORAGE_ENC_PREFIX)) return raw;
+        try {
+            const payload = raw.slice(STORAGE_ENC_PREFIX.length);
+            const binary = atob(payload);
+            const encrypted = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                encrypted[index] = binary.charCodeAt(index);
+            }
+
+            const encoder = new TextEncoder();
+            const keyBytes = encoder.encode(STORAGE_ENC_SECRET);
+            const plainBytes = new Uint8Array(encrypted.length);
+            for (let index = 0; index < encrypted.length; index += 1) {
+                plainBytes[index] = encrypted[index] ^ keyBytes[index % keyBytes.length];
+            }
+
+            return new TextDecoder().decode(plainBytes);
+        } catch {
+            return '';
+        }
+    }
+
     function getStoredHandle() {
-        return String(localStorage.getItem('blitzUserHandle') || '').trim();
+        return String(decodeStoredValue(localStorage.getItem('blitzUserHandle') || '') || '').trim();
     }
 
     function clearAuthSessionStorage() {

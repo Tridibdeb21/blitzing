@@ -32,6 +32,7 @@ const PRESENCE_HEARTBEAT_ACTIVE_MS = 70 * 1000;
 const SESSION_COOKIE_NAME = 'blitz_sid';
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_SECRET = process.env.BLITZ_SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const SESSION_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
 // Store rooms in memory
 const rooms = new Map();
@@ -39,6 +40,7 @@ let lastSeenMap = {};
 const heartbeatSeenMap = new Map();
 let profilesMap = {};
 const sessionStore = new Map();
+const sessionChallengeStore = new Map();
 
 // Middleware
 app.use(cors());
@@ -1042,6 +1044,61 @@ function cleanupExpiredSessions() {
     }
 }
 
+function createSessionChallenge(handle, problem) {
+    const normalizedHandle = normalizeHandle(handle);
+    if (!normalizedHandle || !problem || !problem.contestId || !problem.index) return null;
+
+    const issuedAtMs = Date.now();
+    const id = crypto.randomBytes(24).toString('hex');
+    const entry = {
+        id,
+        handle: normalizedHandle,
+        issuedAtMs,
+        issuedAtSec: Math.floor(issuedAtMs / 1000),
+        expiresAtMs: issuedAtMs + SESSION_CHALLENGE_TTL_MS,
+        problem: {
+            contestId: Number(problem.contestId),
+            index: String(problem.index || '').trim().toUpperCase(),
+            name: String(problem.name || '').trim(),
+            rating: Number(problem.rating) || null,
+            url: String(problem.url || '').trim()
+        }
+    };
+
+    sessionChallengeStore.set(id, entry);
+    return entry;
+}
+
+function getSessionChallenge(challengeId) {
+    const id = String(challengeId || '').trim();
+    if (!id) return null;
+
+    const entry = sessionChallengeStore.get(id);
+    if (!entry) return null;
+    if (Date.now() > Number(entry.expiresAtMs || 0)) {
+        sessionChallengeStore.delete(id);
+        return null;
+    }
+
+    return entry;
+}
+
+function consumeSessionChallenge(challengeId) {
+    const entry = getSessionChallenge(challengeId);
+    if (!entry) return null;
+    sessionChallengeStore.delete(entry.id);
+    return entry;
+}
+
+function cleanupExpiredSessionChallenges() {
+    const now = Date.now();
+    for (const [id, entry] of sessionChallengeStore.entries()) {
+        if (now > Number(entry?.expiresAtMs || 0)) {
+            sessionChallengeStore.delete(id);
+        }
+    }
+}
+
 function extractRequesterHandle(req) {
     const session = getServerSession(req);
     return session?.handle || '';
@@ -1285,13 +1342,15 @@ async function validateHandle(handle) {
     return data.status === 'OK';
 }
 
-async function hasCompilationErrorOnProblem(handle, validationProblem) {
+async function hasCompilationErrorOnProblem(handle, validationProblem, minCreationTimeSec = 0) {
     if (!validationProblem) return false;
     const data = await fetchJson(`https://codeforces.com/api/user.status?handle=${encodeURIComponent(handle)}&from=1&count=100`);
     if (data.status !== 'OK') return false;
 
     return data.result.some(sub => {
         if (!sub.problem) return false;
+        const createdAtSec = Number(sub.creationTimeSeconds) || 0;
+        if (minCreationTimeSec && createdAtSec < Number(minCreationTimeSec)) return false;
         return (
             sub.verdict === 'COMPILATION_ERROR' &&
             sub.problem.contestId === validationProblem.contestId &&
@@ -1851,24 +1910,41 @@ function broadcastActiveRooms() {
 }
 
 // WebSocket connection
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
     console.log('New WebSocket connection');
     ws.userHandle = '';
+    ws.authHandle = String(extractRequesterHandle(req) || '').trim();
     
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
+            const authenticatedHandle = String(ws.authHandle || '').trim();
             
             switch(data.type) {
                 case 'CREATE_ROOM':
+                    if (!authenticatedHandle) {
+                        ws.send(JSON.stringify({ type: 'CREATE_ERROR', message: 'Login required' }));
+                        break;
+                    }
+                    data.handle = authenticatedHandle;
                     await handleCreateRoom(ws, data);
                     break;
                     
                 case 'JOIN_ROOM':
+                    if (!authenticatedHandle) {
+                        ws.send(JSON.stringify({ type: 'JOIN_ERROR', message: 'Login required' }));
+                        break;
+                    }
+                    data.handle = authenticatedHandle;
                     handleJoinRoom(ws, data);
                     break;
                     
                 case 'REJOIN_ROOM':
+                    if (!authenticatedHandle) {
+                        ws.send(JSON.stringify({ type: 'JOIN_ERROR', message: 'Login required' }));
+                        break;
+                    }
+                    data.handle = authenticatedHandle;
                     handleRejoinRoom(ws, data);
                     break;
                     
@@ -1897,8 +1973,8 @@ wss.on('connection', (ws) => {
                     break;
 
                 case 'SET_ACTIVE_HANDLE':
-                    if (typeof data.handle === 'string' && data.handle.trim()) {
-                        ws.userHandle = data.handle.trim();
+                    if (authenticatedHandle) {
+                        ws.userHandle = authenticatedHandle;
                         markHandleSeen(ws.userHandle, Date.now());
                     }
                     break;
@@ -2450,24 +2526,11 @@ app.get('/api/session/me', (req, res) => {
     });
 });
 
-app.post('/api/session/login', async (req, res) => {
+app.post('/api/session/challenge', async (req, res) => {
     try {
         const handle = normalizeHandle(req.body?.handle || '');
         if (!handle) {
             res.status(400).json({ error: 'handle is required' });
-            return;
-        }
-
-        const problemRaw = req.body?.validationProblem;
-        const validationProblem = problemRaw && typeof problemRaw === 'object'
-            ? {
-                contestId: Number(problemRaw.contestId),
-                index: String(problemRaw.index || '').trim().toUpperCase()
-            }
-            : null;
-
-        if (!validationProblem || !Number.isFinite(validationProblem.contestId) || !validationProblem.index) {
-            res.status(400).json({ error: 'validationProblem is required' });
             return;
         }
 
@@ -2477,11 +2540,62 @@ app.post('/api/session/login', async (req, res) => {
             return;
         }
 
-        const verified = await hasCompilationErrorOnProblem(handle, validationProblem);
+        const problem = await generateValidationProblem();
+        const challenge = createSessionChallenge(handle, problem);
+        if (!challenge) {
+            res.status(500).json({ error: 'Could not create verification challenge' });
+            return;
+        }
+
+        res.json({
+            success: true,
+            challengeId: challenge.id,
+            expiresAt: challenge.expiresAtMs,
+            problem: challenge.problem
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Could not create verification challenge' });
+    }
+});
+
+app.post('/api/session/login', async (req, res) => {
+    try {
+        const handle = normalizeHandle(req.body?.handle || '');
+        if (!handle) {
+            res.status(400).json({ error: 'handle is required' });
+            return;
+        }
+
+        const challengeId = String(req.body?.challengeId || '').trim();
+        if (!challengeId) {
+            res.status(400).json({ error: 'challengeId is required' });
+            return;
+        }
+
+        const challenge = getSessionChallenge(challengeId);
+        if (!challenge) {
+            res.status(410).json({ error: 'Verification challenge expired. Generate a new one.' });
+            return;
+        }
+
+        if (normalizeHandle(challenge.handle) !== handle) {
+            res.status(401).json({ error: 'Handle does not match verification challenge' });
+            return;
+        }
+
+        const handleValid = await validateHandle(handle);
+        if (!handleValid) {
+            res.status(400).json({ error: 'Invalid Codeforces handle' });
+            return;
+        }
+
+        const verified = await hasCompilationErrorOnProblem(handle, challenge.problem, challenge.issuedAtSec);
         if (!verified) {
             res.status(401).json({ error: 'Handle verification not found for the selected problem' });
             return;
         }
+
+        consumeSessionChallenge(challengeId);
 
         destroyServerSession(req);
         const session = createServerSession(handle);
@@ -3123,6 +3237,10 @@ Promise.all([initResultsFile(), initBracketsFile(), initFeedbackFile(), initLast
     setInterval(() => {
         cleanupExpiredSessions();
     }, 10 * 60 * 1000);
+
+    setInterval(() => {
+        cleanupExpiredSessionChallenges();
+    }, 60 * 1000);
 
     setInterval(() => {
         rooms.forEach(room => {
