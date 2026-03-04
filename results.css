@@ -27,11 +27,11 @@ body {
 }
 
 .container {
-    max-width: 1280px;
+    max-width: 1100px;
     margin: 0 auto;
 }
 
-.header,
+.blitz-header,
 .stat-card,
 .table-wrap,
 .modal-content,
@@ -42,7 +42,34 @@ body {
     box-shadow: var(--shadow);
 }
 
-.header {
+.quick-nav {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.quick-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--muted);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: 0.2s ease;
+}
+
+.quick-nav-btn:hover {
+    border-color: #3a4b67;
+    color: var(--text);
+    background: rgba(110, 168, 254, 0.08);
+}
+
+.blitz-header {
     padding: 18px;
     margin-bottom: 18px;
     display: flex;
@@ -51,7 +78,7 @@ body {
     gap: 16px;
 }
 
-.header h1 {
+.blitz-header h1 {
     font-size: 1.8rem;
     letter-spacing: -0.02em;
 }
@@ -62,11 +89,63 @@ body {
     font-size: 0.92rem;
 }
 
-.header-buttons {
+.user-panel {
     display: flex;
     gap: 8px;
-    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.results-top-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.results-search-input {
+    min-width: 320px;
+    max-width: 460px;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 10px 12px;
+    outline: none;
+}
+
+.results-search-input::placeholder {
+    color: var(--muted);
+}
+
+.global-handle-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 12px;
+    background: var(--panel);
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.global-handle-chip.not-verified {
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.global-handle-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    object-fit: cover;
 }
 
 .back-btn,
@@ -214,6 +293,8 @@ body {
 .modal-content,
 .password-content {
     width: min(760px, 100%);
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
     padding: 18px;
     background: #101724;
     border: 1px solid #2b364a;
@@ -235,6 +316,37 @@ body {
     padding: 12px;
     background: var(--panel);
     margin: 10px 0;
+}
+
+.user-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.user-stats-item {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 8px 10px;
+}
+
+.user-stats-item span {
+    display: block;
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-bottom: 4px;
+}
+
+.stats-user-link {
+    color: #9dc4ff;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.stats-user-link:hover {
+    text-decoration: underline;
 }
 
 .problem-detail-top {
@@ -286,7 +398,7 @@ body {
 
 .site-footer {
     margin: 16px auto 0;
-    max-width: 1280px;
+    max-width: 1100px;
     padding: 14px 16px;
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -318,16 +430,60 @@ body {
         padding: 14px;
     }
 
-    .header {
+    .blitz-header {
         flex-direction: column;
         align-items: flex-start;
     }
 
-    .header-buttons {
+    .user-panel,
+    .results-top-actions {
         justify-content: flex-start;
+    }
+
+    .results-top-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .results-search-input {
+        min-width: 0;
+        max-width: 100%;
     }
 
     .problem-players {
         grid-template-columns: 1fr;
+    }
+
+    .user-stats-grid {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+    }
+
+    .modal,
+    .password-modal {
+        padding: 10px;
+        align-items: flex-start;
+    }
+
+    .modal-content,
+    .password-content {
+        width: 100%;
+        max-height: calc(100vh - 20px);
+        padding: 14px;
+        border-radius: 12px;
+    }
+
+    .problem-detail-top {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .close-btn,
+    .password-buttons .password-btn {
+        width: 100%;
+    }
+
+    .password-buttons {
+        flex-direction: column;
+        align-items: stretch;
     }
 }

@@ -7,6 +7,7 @@
     let ws = null;
     let reconnectAttempts = 0;
     let roomData = null;
+    let allActiveRooms = [];
     
     // Battle state
     let player1Handle = '';
@@ -15,6 +16,8 @@
     let player2Score = 0;
     let player1Rank = '';
     let player2Rank = '';
+    let player1Rating = null;
+    let player2Rating = null;
     let player1RankColor = '';
     let player2RankColor = '';
     let battleActive = false;
@@ -53,6 +56,8 @@
     let handleVerificationHandle = '';
     let handleVerificationTimer = null;
     let serverClockOffsetMs = 0;
+    let leaderboardTieOrder = Math.random() < 0.5 ? ['p1', 'p2'] : ['p2', 'p1'];
+    let syncedActiveHandle = '';
 
     
     // Track solved problems
@@ -88,12 +93,16 @@
     const joinRoomBtn = document.getElementById('joinRoomBtn');
     const joinRoomIdInput = document.getElementById('joinRoomIdInput');
     const activeBlitzList = document.getElementById('activeBlitzList');
+    const activeRoomsSearchInput = document.getElementById('activeRoomsSearchInput');
     const roomControls = document.getElementById('roomControls');
     const activeBlitzSection = document.getElementById('activeBlitzSection');
     const roomInfoBar = document.getElementById('roomInfoBar');
     const currentRoomName = document.getElementById('currentRoomName');
     const currentRoomId = document.getElementById('currentRoomId');
     const roomPlayers = document.getElementById('roomPlayers');
+    const spectatorPanel = document.getElementById('spectatorPanel');
+    const spectatorCountText = document.getElementById('spectatorCountText');
+    const spectatorList = document.getElementById('spectatorList');
     const roomValidationMini = document.getElementById('roomValidationMini');
     const leaveRoomBtn = document.getElementById('leaveRoomBtn');
     const configDashboard = document.getElementById('configDashboard');
@@ -153,6 +162,9 @@
     const handleVerificationBlock = document.getElementById('handleVerificationBlock');
     const handleVerificationProblemLink = document.getElementById('handleVerificationProblemLink');
     const handleVerificationStatus = document.getElementById('handleVerificationStatus');
+    const userProfileModal = document.getElementById('userProfileModal');
+    const userProfileBody = document.getElementById('userProfileBody');
+    const closeUserProfileModal = document.getElementById('closeUserProfileModal');
 
     const API_BASE_URL = window.location.origin;
     const WS_URL = window.location.origin.replace('http', 'ws');
@@ -200,7 +212,11 @@
     function renderLoggedInfo() {
         if (!userHandle) {
             loggedInfo.classList.remove('user-chip');
+            loggedInfo.removeAttribute('role');
+            loggedInfo.removeAttribute('tabindex');
+            loggedInfo.removeAttribute('title');
             loggedInfo.textContent = 'Not verified';
+            if (setHandleBtn) setHandleBtn.style.display = 'inline-flex';
             return;
         }
 
@@ -209,7 +225,335 @@
             : '';
 
         loggedInfo.classList.add('user-chip');
+        loggedInfo.setAttribute('role', 'button');
+        loggedInfo.setAttribute('tabindex', '0');
+        loggedInfo.setAttribute('title', 'Click to view profile');
         loggedInfo.innerHTML = `${avatarMarkup}<span>${userHandle}</span>`;
+        if (setHandleBtn) setHandleBtn.style.display = 'none';
+
+        syncActiveHandlePresence();
+    }
+
+    function syncActiveHandlePresence(force = false) {
+        const handle = String(userHandle || '').trim();
+        if (!handle) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+        const normalized = handle.toLowerCase();
+        if (!force && normalized === syncedActiveHandle) return;
+
+        ws.send(JSON.stringify({
+            type: 'SET_ACTIVE_HANDLE',
+            handle
+        }));
+        syncedActiveHandle = normalized;
+    }
+
+    async function fetchSiteUserStats(handle) {
+        try {
+            const normalizedHandle = String(handle || '').trim().toLowerCase();
+            const response = await fetch(`${API_BASE_URL}/api/results`);
+            const results = await response.json();
+            if (!Array.isArray(results)) {
+                return {
+                    played: 0,
+                    wins: 0,
+                    losses: 0,
+                    ties: 0,
+                    winRate: '0.0',
+                    avgScore: '0.0',
+                    streak: '-',
+                    opponents: [],
+                    recentMatches: []
+                };
+            }
+
+            let played = 0;
+            let wins = 0;
+            let losses = 0;
+            let ties = 0;
+            let scoreSum = 0;
+            const opponentMap = new Map();
+            const matchEntries = [];
+
+            for (const match of results) {
+                const p1 = String(match?.player1?.handle || '');
+                const p2 = String(match?.player2?.handle || '');
+                const p1Norm = p1.toLowerCase();
+                const p2Norm = p2.toLowerCase();
+                if (p1Norm !== normalizedHandle && p2Norm !== normalizedHandle) continue;
+
+                played += 1;
+                const winner = match?.winner;
+                const winnerNorm = String(winner || '').toLowerCase();
+                if (winnerNorm === 'tie') ties += 1;
+                else if (winnerNorm === normalizedHandle) wins += 1;
+                else losses += 1;
+
+                let ownScore = 0;
+                let opponentScore = 0;
+                if (p1Norm === normalizedHandle) {
+                    ownScore = Number(match?.player1?.score) || 0;
+                    opponentScore = Number(match?.player2?.score) || 0;
+                    scoreSum += ownScore;
+                } else if (p2Norm === normalizedHandle) {
+                    ownScore = Number(match?.player2?.score) || 0;
+                    opponentScore = Number(match?.player1?.score) || 0;
+                    scoreSum += ownScore;
+                }
+
+                const opponent = p1Norm === normalizedHandle ? p2 : p1;
+                if (opponent) {
+                    opponentMap.set(opponent, (opponentMap.get(opponent) || 0) + 1);
+                }
+
+                let outcome = 'L';
+                if (winnerNorm === 'tie') outcome = 'T';
+                else if (winnerNorm === normalizedHandle) outcome = 'W';
+
+                matchEntries.push({
+                    opponent,
+                    ownScore,
+                    opponentScore,
+                    outcome,
+                    date: match?.date || '',
+                    roomId: match?.roomId || ''
+                });
+            }
+
+            const winRate = played > 0 ? ((wins / played) * 100).toFixed(1) : '0.0';
+            const avgScore = played > 0 ? (scoreSum / played).toFixed(1) : '0.0';
+            const opponents = Array.from(opponentMap.entries())
+                .sort((a, b) => b[1] - a[1])
+                .map(([opponentHandle, count]) => ({ handle: opponentHandle, count }));
+
+            const recentMatches = matchEntries
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .slice(0, 5);
+
+            let streak = '-';
+            if (recentMatches.length > 0) {
+                const latestOutcome = recentMatches[0].outcome;
+                let streakCount = 0;
+                for (const item of recentMatches) {
+                    if (item.outcome !== latestOutcome) break;
+                    streakCount += 1;
+                }
+                streak = `${latestOutcome}${streakCount}`;
+            }
+
+            return { played, wins, losses, ties, winRate, avgScore, streak, opponents, recentMatches };
+        } catch {
+            return {
+                played: 0,
+                wins: 0,
+                losses: 0,
+                ties: 0,
+                winRate: '0.0',
+                avgScore: '0.0',
+                streak: '-',
+                opponents: [],
+                recentMatches: []
+            };
+        }
+    }
+
+    async function fetchUserProfileDetails(handle) {
+        try {
+            const response = await fetch(`https://codeforces.com/api/user.info?handles=${encodeURIComponent(handle)}`);
+            const data = await response.json();
+            if (data.status !== 'OK' || !Array.isArray(data.result) || !data.result[0]) return null;
+            return data.result[0];
+        } catch {
+            return null;
+        }
+    }
+
+    async function fetchSitePresence(handle) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/presence/${encodeURIComponent(handle)}`);
+            const data = await response.json();
+            return {
+                active: !!data?.active,
+                lastSeen: Number(data?.lastSeen) || null
+            };
+        } catch {
+            return { active: false, lastSeen: null };
+        }
+    }
+
+    function formatLastSeenLikeCodeforces(lastSeenTs) {
+        const timestamp = Number(lastSeenTs) || 0;
+        if (!timestamp) return 'last seen unavailable';
+
+        const diffMs = Math.max(0, Date.now() - timestamp);
+        const minute = 60 * 1000;
+        const hour = 60 * minute;
+        const day = 24 * hour;
+        const week = 7 * day;
+        const month = 30 * day;
+
+        if (diffMs < minute) return 'last seen just now';
+        if (diffMs < hour) {
+            const value = Math.floor(diffMs / minute);
+            return `last seen ${value} minute${value === 1 ? '' : 's'} ago`;
+        }
+        if (diffMs < day) {
+            const value = Math.floor(diffMs / hour);
+            return `last seen ${value} hour${value === 1 ? '' : 's'} ago`;
+        }
+        if (diffMs < week) {
+            const value = Math.floor(diffMs / day);
+            return `last seen ${value} day${value === 1 ? '' : 's'} ago`;
+        }
+        if (diffMs < month) {
+            const value = Math.floor(diffMs / week);
+            return `last seen ${value} week${value === 1 ? '' : 's'} ago`;
+        }
+
+        const value = Math.floor(diffMs / month);
+        return `last seen ${value} month${value === 1 ? '' : 's'} ago`;
+    }
+
+    function openUserProfileModalLoading() {
+        if (!userProfileModal || !userProfileBody) return;
+        userProfileBody.textContent = 'Loading profile...';
+        userProfileModal.style.display = 'flex';
+    }
+
+    function renderUserProfileModal(profile, siteStats, presence) {
+        if (!userProfileBody) return;
+        if (!profile) {
+            userProfileBody.textContent = 'Could not load profile right now.';
+            return;
+        }
+
+        const handle = profile.handle || userHandle;
+        const rank = profile.rank || 'Unrated';
+        const numericMaxRating = Number(profile.maxRating);
+        const numericRating = Number(profile.rating);
+        const colorRating = Number.isFinite(numericMaxRating) && numericMaxRating > 0
+            ? numericMaxRating
+            : (Number.isFinite(numericRating) && numericRating > 0 ? numericRating : 0);
+        const handleRankClass = colorRating > 0 ? getRankFromRating(colorRating).color : '';
+        const canEditOwnHandle = String(handle || '').toLowerCase() === String(userHandle || '').toLowerCase();
+        const maxRank = profile.maxRank || 'Unrated';
+        const rating = Number.isFinite(Number(profile.rating)) ? profile.rating : '—';
+        const maxRating = Number.isFinite(Number(profile.maxRating)) ? profile.maxRating : '—';
+        const contribution = Number.isFinite(Number(profile.contribution)) ? profile.contribution : '—';
+        const friendOfCount = Number.isFinite(Number(profile.friendOfCount)) ? profile.friendOfCount : '—';
+        const stats = siteStats || {
+            played: 0,
+            wins: 0,
+            losses: 0,
+            ties: 0,
+            winRate: '0.0',
+            avgScore: '0.0',
+            streak: '-',
+            opponents: [],
+            recentMatches: []
+        };
+        const avatar = profile.titlePhoto || userAvatarUrl || '';
+        const base = `https://codeforces.com/profile/${encodeURIComponent(handle)}`;
+        const historyUrl = `results.html?handle=${encodeURIComponent(handle)}`;
+        const statusText = presence?.active
+            ? 'online now'
+            : formatLastSeenLikeCodeforces(presence?.lastSeen);
+        const statusClass = presence?.active ? 'status-active' : 'status-offline';
+        const selfHandle = String(userHandle || '').trim();
+        const h2hUrl = selfHandle && selfHandle.toLowerCase() !== String(handle).toLowerCase()
+            ? `headtohead.html?h1=${encodeURIComponent(selfHandle)}&h2=${encodeURIComponent(handle)}`
+            : `headtohead.html?h1=${encodeURIComponent(handle)}`;
+        const opponentsHtml = Array.isArray(stats.opponents) && stats.opponents.length > 0
+            ? stats.opponents.slice(0, 8).map(item => `<a href="#" class="user-stats-handle" data-handle="${item.handle}">${item.handle}</a> (${item.count})`).join(', ')
+            : 'No match history yet.';
+        const recentMatchesHtml = Array.isArray(stats.recentMatches) && stats.recentMatches.length > 0
+            ? stats.recentMatches.map(item => {
+                const outcomeClass = item.outcome === 'W' ? 'win' : item.outcome === 'L' ? 'loss' : 'tie';
+                const dateText = item.date ? new Date(item.date).toLocaleDateString() : '—';
+                const roomHref = item.roomId ? `results.html?roomId=${encodeURIComponent(item.roomId)}` : historyUrl;
+                return `
+                    <li class="user-recent-item">
+                        <span class="user-recent-outcome ${outcomeClass}">${item.outcome}</span>
+                        <span class="user-recent-opponent">vs ${item.opponent || 'Unknown'}</span>
+                        <span class="user-recent-score">${item.ownScore} - ${item.opponentScore}</span>
+                        <a class="user-recent-link" href="${roomHref}" target="_blank" rel="noopener noreferrer">${dateText}</a>
+                    </li>
+                `;
+            }).join('')
+            : '<li class="user-recent-empty">No recent matches</li>';
+
+        userProfileBody.innerHTML = `
+            <div class="user-profile-head">
+                ${avatar ? `<img src="${avatar}" alt="${handle}" class="user-profile-avatar">` : ''}
+                <div class="user-profile-head-info">
+                    <div class="user-profile-handle-row">
+                        <div class="user-profile-handle ${handleRankClass}">${handle}</div>
+                        ${canEditOwnHandle ? '<button type="button" class="profile-edit-handle-btn" title="Change handle" aria-label="Change handle" data-change-handle="1">✎</button>' : ''}
+                    </div>
+                    <div class="user-presence ${statusClass}"><span class="presence-dot"></span>${statusText}</div>
+                    <div class="user-profile-rank">${rank} · max ${maxRank}</div>
+                </div>
+            </div>
+            <div class="user-profile-grid">
+                <div class="user-profile-item"><span>Rating</span><strong>${rating}</strong></div>
+                <div class="user-profile-item"><span>Max Rating</span><strong>${maxRating}</strong></div>
+                <div class="user-profile-item"><span>Contribution</span><strong>${contribution}</strong></div>
+                <div class="user-profile-item"><span>Friends Of</span><strong>${friendOfCount}</strong></div>
+            </div>
+            <div class="user-profile-links">
+                <a href="${base}" target="_blank" rel="noopener noreferrer">CF Profile</a>
+                <a href="${historyUrl}" target="_blank" rel="noopener noreferrer">History</a>
+                <a href="${h2hUrl}" target="_blank" rel="noopener noreferrer">Head-to-Head</a>
+            </div>
+            <div class="user-profile-site">
+                <h4>PUC Blitz Stats</h4>
+                <div class="user-profile-grid">
+                    <div class="user-profile-item"><span>Played Games</span><strong>${stats.played}</strong></div>
+                    <div class="user-profile-item"><span>Wins</span><strong>${stats.wins}</strong></div>
+                    <div class="user-profile-item"><span>Losses</span><strong>${stats.losses}</strong></div>
+                    <div class="user-profile-item"><span>Ties</span><strong>${stats.ties}</strong></div>
+                    <div class="user-profile-item"><span>Win Rate</span><strong>${stats.winRate}%</strong></div>
+                    <div class="user-profile-item"><span>Avg Score</span><strong>${stats.avgScore}</strong></div>
+                    <div class="user-profile-item"><span>Streak</span><strong>${stats.streak}</strong></div>
+                </div>
+                <div style="margin-top:8px;"><span style="color:var(--muted); font-size:0.82rem;">Played with:</span> ${opponentsHtml}</div>
+                <div class="user-recent-wrap">
+                    <div class="user-recent-title">Recent 5 Matches</div>
+                    <ul class="user-recent-list">${recentMatchesHtml}</ul>
+                </div>
+                <div style="margin-top:10px;">
+                    <a class="user-stats-handle" href="${historyUrl}" target="_blank" rel="noopener noreferrer">View played match history</a>
+                </div>
+            </div>
+        `;
+    }
+
+    async function openUserProfileModal(targetHandle = '') {
+        const handleToOpen = String(targetHandle || userHandle || '').trim();
+        if (!handleToOpen) return;
+        openUserProfileModalLoading();
+        const [profile, siteStats, presence] = await Promise.all([
+            fetchUserProfileDetails(handleToOpen),
+            fetchSiteUserStats(handleToOpen),
+            fetchSitePresence(handleToOpen)
+        ]);
+        renderUserProfileModal(profile, siteStats, presence);
+    }
+
+    function bindArenaPlayerProfileLinks() {
+        const wire = (anchorEl) => {
+            if (!anchorEl) return;
+            anchorEl.addEventListener('click', (event) => {
+                event.preventDefault();
+                const handleToOpen = String(anchorEl.textContent || '').trim();
+                if (!handleToOpen || handleToOpen.toLowerCase() === 'waiting') return;
+                openUserProfileModal(handleToOpen).catch(() => {});
+            });
+        };
+
+        wire(p1HandleSpan);
+        wire(p2HandleSpan);
     }
 
     // Load saved state
@@ -337,6 +681,7 @@
         ws.onopen = () => {
             console.log('WebSocket connected');
             reconnectAttempts = 0;
+            syncedActiveHandle = '';
             
             if (currentRoom) {
                 ws.send(JSON.stringify({
@@ -348,6 +693,7 @@
                 ws.send(JSON.stringify({ type: 'GET_ACTIVE_ROOMS' }));
             }
 
+            syncActiveHandlePresence(true);
             tryJoinPendingRoom();
         };
         
@@ -358,6 +704,7 @@
         
         ws.onclose = () => {
             console.log('WebSocket disconnected');
+            syncedActiveHandle = '';
             if (reconnectAttempts < 5) {
                 setTimeout(() => {
                     reconnectAttempts++;
@@ -683,6 +1030,7 @@
         
         showBattleUI();
         validationSection.style.display = 'none';
+        renderLiveSpectatorList(roomData?.players || []);
         updatePlayerUI();
         renderProblemsDisplay();
         updateTimerDisplay();
@@ -835,8 +1183,8 @@
             player2Handle = players[1];
             p1HandleSpan.textContent = player1Handle;
             p2HandleSpan.textContent = player2Handle;
-            p1HandleSpan.href = `https://codeforces.com/profile/${player1Handle}`;
-            p2HandleSpan.href = `https://codeforces.com/profile/${player2Handle}`;
+            p1HandleSpan.href = '#';
+            p2HandleSpan.href = '#';
 
             startP1HandleInput.value = player1Handle;
             startP2HandleInput.value = player2Handle;
@@ -868,12 +1216,54 @@
     }
 
     function updateRoomPlayers(players) {
-        roomPlayers.textContent = `👥 ${players.length} joined`;
+        const list = Array.isArray(players) ? players.filter(Boolean) : [];
+        roomPlayers.textContent = `👥 ${list.length} joined`;
+        if (roomData) {
+            roomData.players = list;
+        }
+        renderLiveSpectatorList(list);
     }
 
-    function displayActiveRooms(rooms) {
+    function renderLiveSpectatorList(players = []) {
+        if (!spectatorPanel || !spectatorCountText || !spectatorList) return;
+
+        if (!battleActive) {
+            spectatorPanel.style.display = 'none';
+            spectatorCountText.textContent = '0 live';
+            spectatorList.innerHTML = '';
+            return;
+        }
+
+        const uniqueHandles = Array.from(new Set((players || []).map(item => String(item || '').trim()).filter(Boolean)));
+        const p1 = String(player1Handle || '').trim().toLowerCase();
+        const p2 = String(player2Handle || '').trim().toLowerCase();
+        const spectators = uniqueHandles.filter(handle => {
+            const normalized = handle.toLowerCase();
+            return normalized !== p1 && normalized !== p2;
+        });
+
+        spectatorCountText.textContent = `${spectators.length} live`;
+        if (spectators.length === 0) {
+            spectatorList.innerHTML = '<span class="spectator-empty">No live spectators</span>';
+        } else {
+            spectatorList.innerHTML = spectators.map(handle => `<span class="spectator-chip">${handle}</span>`).join('');
+        }
+
+        spectatorPanel.style.display = 'block';
+    }
+
+    function renderFilteredActiveRooms() {
+        const query = (activeRoomsSearchInput?.value || '').trim().toLowerCase();
+        const rooms = query
+            ? allActiveRooms.filter(room => {
+                const name = String(room?.name || '').toLowerCase();
+                const id = String(room?.id || '').toLowerCase();
+                return name.includes(query) || id.includes(query);
+            })
+            : allActiveRooms;
+
         if (rooms.length === 0) {
-            activeBlitzList.innerHTML = '<div class="loading">No active rooms</div>';
+            activeBlitzList.innerHTML = '<div class="live-loading"><span class="live-dot"></span><span>Live · No active rooms</span></div>';
             return;
         }
         
@@ -891,6 +1281,11 @@
             `;
         });
         activeBlitzList.innerHTML = html;
+    }
+
+    function displayActiveRooms(rooms) {
+        allActiveRooms = Array.isArray(rooms) ? rooms : [];
+        renderFilteredActiveRooms();
     }
 
     window.joinRoom = function(roomId) {
@@ -924,6 +1319,17 @@
     function closeHandleSetupModal() {
         stopHandleVerificationPolling();
         handleSetupModal.style.display = 'none';
+    }
+
+    function openHandleSetupModal() {
+        userHandleInput.value = userHandle || '';
+        handleVerificationProblem = null;
+        handleVerificationHandle = '';
+        handleVerificationBlock.style.display = 'none';
+        handleVerificationProblemLink.href = '#';
+        handleVerificationStatus.textContent = 'Waiting for COMPILATION_ERROR submission...';
+        handleSetupModal.style.display = 'flex';
+        userHandleInput.focus();
     }
 
     async function completeHandleSetup(profile) {
@@ -989,14 +1395,7 @@
     }
 
     setHandleBtn.addEventListener('click', () => {
-        userHandleInput.value = userHandle || '';
-        handleVerificationProblem = null;
-        handleVerificationHandle = '';
-        handleVerificationBlock.style.display = 'none';
-        handleVerificationProblemLink.href = '#';
-        handleVerificationStatus.textContent = 'Waiting for COMPILATION_ERROR submission...';
-        handleSetupModal.style.display = 'flex';
-        userHandleInput.focus();
+        openHandleSetupModal();
     });
 
     generateHandleVerificationBtn.addEventListener('click', () => {
@@ -1015,6 +1414,47 @@
     closeHandleSetup.addEventListener('click', () => {
         closeHandleSetupModal();
     });
+
+    loggedInfo.addEventListener('click', () => {
+        openUserProfileModal().catch(() => {});
+    });
+
+    loggedInfo.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openUserProfileModal().catch(() => {});
+        }
+    });
+
+    if (closeUserProfileModal) {
+        closeUserProfileModal.addEventListener('click', () => {
+            userProfileModal.style.display = 'none';
+        });
+    }
+
+    if (userProfileBody) {
+        userProfileBody.addEventListener('click', (event) => {
+            const changeHandleBtn = event.target.closest('[data-change-handle]');
+            if (changeHandleBtn) {
+                userProfileModal.style.display = 'none';
+                openHandleSetupModal();
+                return;
+            }
+
+            const handleLink = event.target.closest('.user-stats-handle');
+            if (!handleLink) return;
+            const targetHandle = handleLink.dataset.handle;
+            if (!targetHandle) return;
+            event.preventDefault();
+            openUserProfileModal(targetHandle).catch(() => {});
+        });
+    }
+
+    if (activeRoomsSearchInput) {
+        activeRoomsSearchInput.addEventListener('input', () => {
+            renderFilteredActiveRooms();
+        });
+    }
 
     // Create room
     createRoomBtn.addEventListener('click', async () => {
@@ -1097,6 +1537,9 @@
 
     function leaveRoom() {
         stopMatchCountdown();
+        leaderboardTieOrder = Math.random() < 0.5 ? ['p1', 'p2'] : ['p2', 'p1'];
+        player1Rating = null;
+        player2Rating = null;
         currentRoom = null;
         isHost = false;
         roomData = null;
@@ -1106,6 +1549,9 @@
         activeBlitzSection.style.display = 'block';
         
         roomInfoBar.style.display = 'none';
+        if (spectatorPanel) {
+            spectatorPanel.style.display = 'none';
+        }
         roomValidationMini.style.display = 'none';
         configDashboard.style.display = 'none';
         validationSection.style.display = 'none';
@@ -1266,11 +1712,13 @@
                 const users = data.result;
                 
                 const p1Rating = users[0].rating || 0;
+                player1Rating = p1Rating;
                 const p1RankInfo = getRankFromRating(p1Rating);
                 player1Rank = p1RankInfo.name;
                 player1RankColor = p1RankInfo.color;
                 
                 const p2Rating = users[1].rating || 0;
+                player2Rating = p2Rating;
                 const p2RankInfo = getRankFromRating(p2Rating);
                 player2Rank = p2RankInfo.name;
                 player2RankColor = p2RankInfo.color;
@@ -1296,13 +1744,13 @@
 
     function updatePlayerUI() {
         p1HandleSpan.textContent = player1Handle;
-        p1HandleSpan.href = `https://codeforces.com/profile/${player1Handle}`;
+        p1HandleSpan.href = '#';
         p1HandleSpan.className = `player-handle ${player1RankColor}`;
         p1RankSpan.textContent = player1Rank;
         p1RankSpan.className = `player-rank ${player1RankColor}`;
         
         p2HandleSpan.textContent = player2Handle;
-        p2HandleSpan.href = `https://codeforces.com/profile/${player2Handle}`;
+        p2HandleSpan.href = '#';
         p2HandleSpan.className = `player-handle ${player2RankColor}`;
         p2RankSpan.textContent = player2Rank;
         p2RankSpan.className = `player-rank ${player2RankColor}`;
@@ -1313,6 +1761,99 @@
         renderLeaderboard();
     }
 
+    function getOrderedLeaderboardPlayers() {
+        const players = [
+            {
+                id: 'p1',
+                handle: player1Handle,
+                rank: player1Rank,
+                rankColor: player1RankColor,
+                rating: Number.isFinite(Number(player1Rating)) ? Number(player1Rating) : null,
+                score: Number(player1Score) || 0,
+                results: problemResults.p1 || []
+            },
+            {
+                id: 'p2',
+                handle: player2Handle,
+                rank: player2Rank,
+                rankColor: player2RankColor,
+                rating: Number.isFinite(Number(player2Rating)) ? Number(player2Rating) : null,
+                score: Number(player2Score) || 0,
+                results: problemResults.p2 || []
+            }
+        ];
+
+        players.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+
+            const aKnown = Number.isFinite(a.rating);
+            const bKnown = Number.isFinite(b.rating);
+            if (aKnown && bKnown && a.rating !== b.rating) {
+                return a.rating - b.rating;
+            }
+
+            if (aKnown !== bKnown) {
+                return aKnown ? -1 : 1;
+            }
+
+            return leaderboardTieOrder.indexOf(a.id) - leaderboardTieOrder.indexOf(b.id);
+        });
+
+        return players;
+    }
+
+    function renderLeaderboardRow(player) {
+        let row = `<tr data-player-id="${player.id}">`;
+        row += `<td><span class="${player.rankColor}"><strong>${player.handle}</strong></span></td>`;
+        row += `<td><span class="${player.rankColor}">${player.rank}</span></td>`;
+        row += `<td><strong style="color: #ffd966;">${player.score}</strong></td>`;
+
+        problems.forEach((_, index) => {
+            const result = player.results[index];
+            if (result && result.solved) {
+                row += `<td class="problem-cell solved">✓</td>`;
+            } else if (result && result.pending) {
+                row += `<td class="problem-cell">⏳</td>`;
+            } else if (result && result.attempts > 0) {
+                row += `<td class="problem-cell attempted">✗</td>`;
+            } else {
+                row += `<td class="problem-cell">—</td>`;
+            }
+        });
+
+        row += '</tr>';
+        return row;
+    }
+
+    function animateLeaderboardReorder(previousTopById) {
+        const rows = Array.from(leaderboardBody.querySelectorAll('tr[data-player-id]'));
+        rows.forEach(row => {
+            const playerId = row.dataset.playerId;
+            if (!playerId || !previousTopById.has(playerId)) return;
+
+            const oldTop = previousTopById.get(playerId);
+            const newTop = row.getBoundingClientRect().top;
+            const deltaY = oldTop - newTop;
+            if (Math.abs(deltaY) < 1) return;
+
+            row.style.transition = 'none';
+            row.style.transform = `translateY(${deltaY}px)`;
+
+            requestAnimationFrame(() => {
+                row.style.transition = 'transform 240ms ease';
+                row.style.transform = 'translateY(0)';
+
+                const cleanup = () => {
+                    row.style.transition = '';
+                    row.style.transform = '';
+                    row.removeEventListener('transitionend', cleanup);
+                };
+
+                row.addEventListener('transitionend', cleanup);
+            });
+        });
+    }
+
     function renderLeaderboard() {
         let headerHtml = '<tr><th>Player</th><th>Rank</th><th>Total</th>';
         problems.forEach((prob, index) => {
@@ -1320,46 +1861,20 @@
         });
         headerHtml += '</tr>';
         leaderboardHeader.innerHTML = headerHtml;
-        
-        let p1Row = '<tr>';
-        p1Row += `<td><span class="${player1RankColor}"><strong>${player1Handle}</strong></span></td>`;
-        p1Row += `<td><span class="${player1RankColor}">${player1Rank}</span></td>`;
-        p1Row += `<td><strong style="color: #ffd966;">${player1Score}</strong></td>`;
-        
-        problems.forEach((prob, index) => {
-            const result = problemResults.p1[index];
-            if (result && result.solved) {
-                p1Row += `<td class="problem-cell solved">✓</td>`;
-            } else if (result && result.pending) {
-                p1Row += `<td class="problem-cell">⏳</td>`;
-            } else if (result && result.attempts > 0) {
-                p1Row += `<td class="problem-cell attempted">✗</td>`;
-            } else {
-                p1Row += `<td class="problem-cell">—</td>`;
-            }
+
+        const previousTopById = new Map();
+        Array.from(leaderboardBody.querySelectorAll('tr[data-player-id]')).forEach(row => {
+            const playerId = row.dataset.playerId;
+            if (!playerId) return;
+            previousTopById.set(playerId, row.getBoundingClientRect().top);
         });
-        p1Row += '</tr>';
-        
-        let p2Row = '<tr>';
-        p2Row += `<td><span class="${player2RankColor}"><strong>${player2Handle}</strong></span></td>`;
-        p2Row += `<td><span class="${player2RankColor}">${player2Rank}</span></td>`;
-        p2Row += `<td><strong style="color: #ffd966;">${player2Score}</strong></td>`;
-        
-        problems.forEach((prob, index) => {
-            const result = problemResults.p2[index];
-            if (result && result.solved) {
-                p2Row += `<td class="problem-cell solved">✓</td>`;
-            } else if (result && result.pending) {
-                p2Row += `<td class="problem-cell">⏳</td>`;
-            } else if (result && result.attempts > 0) {
-                p2Row += `<td class="problem-cell attempted">✗</td>`;
-            } else {
-                p2Row += `<td class="problem-cell">—</td>`;
-            }
-        });
-        p2Row += '</tr>';
-        
-        leaderboardBody.innerHTML = p1Row + p2Row;
+
+        const rows = getOrderedLeaderboardPlayers().map(player => renderLeaderboardRow(player));
+        leaderboardBody.innerHTML = rows.join('');
+
+        if (previousTopById.size > 0) {
+            animateLeaderboardReorder(previousTopById);
+        }
     }
 
     async function ensureNotificationPermission() {
@@ -1932,6 +2447,9 @@
         solveNotificationKeys = new Set();
         breakTimerDiv.style.display = 'none';
         breakIndicator.style.display = 'none';
+        if (spectatorPanel) {
+            spectatorPanel.style.display = 'none';
+        }
         breakStartTime = null;
         clearBattleRuntimeState();
         
@@ -2034,6 +2552,9 @@
         if (e.target === handleSetupModal) {
             closeHandleSetupModal();
         }
+        if (e.target === userProfileModal) {
+            userProfileModal.style.display = 'none';
+        }
     });
 
     function init() {
@@ -2049,6 +2570,7 @@
             }
         }
         loadSavedState();
+        bindArenaPlayerProfileLinks();
         connectWebSocket();
     }
 

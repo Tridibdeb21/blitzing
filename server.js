@@ -19,9 +19,15 @@ const ROOM_NO_OPPONENT_TIMEOUT_MS = 10 * 60 * 1000;
 const MATCH_START_COUNTDOWN_MS = 15 * 1000;
 const ROOM_PENDING_RECHECK_DELAY_MS = 60 * 1000;
 const ROOM_VALIDATION_POLL_MS = 2000;
+const LAST_SEEN_FILE = path.join(__dirname, 'last_seen.json');
+const PROFILES_FILE = path.join(__dirname, 'profiles.json');
+const PRESENCE_HEARTBEAT_ACTIVE_MS = 70 * 1000;
 
 // Store rooms in memory
 const rooms = new Map();
+let lastSeenMap = {};
+const heartbeatSeenMap = new Map();
+let profilesMap = {};
 
 // Middleware
 app.use(cors());
@@ -63,6 +69,156 @@ async function initBracketsFile() {
     } catch {
         await fs.writeFile(BRACKETS_FILE, JSON.stringify([]));
     }
+}
+
+async function initLastSeenFile() {
+    try {
+        const raw = await fs.readFile(LAST_SEEN_FILE, 'utf8');
+        const trimmed = String(raw || '').trim();
+        if (!trimmed) {
+            lastSeenMap = {};
+            await fs.writeFile(LAST_SEEN_FILE, JSON.stringify(lastSeenMap, null, 2));
+            return;
+        }
+
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            lastSeenMap = parsed;
+            return;
+        }
+
+        lastSeenMap = {};
+        await fs.writeFile(LAST_SEEN_FILE, JSON.stringify(lastSeenMap, null, 2));
+    } catch {
+        lastSeenMap = {};
+        await fs.writeFile(LAST_SEEN_FILE, JSON.stringify(lastSeenMap, null, 2));
+    }
+}
+
+async function initProfilesFile() {
+    try {
+        const raw = await fs.readFile(PROFILES_FILE, 'utf8');
+        const trimmed = String(raw || '').trim();
+        if (!trimmed) {
+            profilesMap = {};
+            await fs.writeFile(PROFILES_FILE, JSON.stringify([], null, 2));
+            return;
+        }
+
+        const parsed = JSON.parse(trimmed);
+        const nextMap = {};
+
+        if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+                const handle = String(item || '').trim();
+                const normalized = normalizeHandle(handle);
+                if (!normalized) continue;
+                if (!nextMap[normalized]) {
+                    nextMap[normalized] = handle;
+                }
+            }
+            profilesMap = nextMap;
+            return;
+        }
+
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            for (const [key, value] of Object.entries(parsed)) {
+                const handle = String(value || '').trim();
+                const normalized = normalizeHandle(key || handle);
+                if (!normalized) continue;
+                nextMap[normalized] = handle || normalized;
+            }
+            profilesMap = nextMap;
+            await saveProfilesFile();
+            return;
+        }
+
+        profilesMap = {};
+        await fs.writeFile(PROFILES_FILE, JSON.stringify([], null, 2));
+    } catch {
+        profilesMap = {};
+        await fs.writeFile(PROFILES_FILE, JSON.stringify([], null, 2));
+    }
+}
+
+async function saveLastSeenFile() {
+    try {
+        await fs.writeFile(LAST_SEEN_FILE, JSON.stringify(lastSeenMap, null, 2));
+    } catch (error) {
+        console.error('Failed to write last seen file:', error);
+    }
+}
+
+async function saveProfilesFile() {
+    try {
+        const handles = Object.values(profilesMap)
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b));
+        await fs.writeFile(PROFILES_FILE, JSON.stringify(handles, null, 2));
+    } catch (error) {
+        console.error('Failed to write profiles file:', error);
+    }
+}
+
+function upsertProfileHandle(handle) {
+    const display = String(handle || '').trim();
+    const normalized = normalizeHandle(display);
+    if (!normalized) return false;
+
+    if (profilesMap[normalized]) {
+        return false;
+    }
+
+    profilesMap[normalized] = display;
+    saveProfilesFile().catch(() => {});
+    return true;
+}
+
+function getAllProfiles() {
+    return Object.values(profilesMap)
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+}
+
+function markHandleSeen(handle, timestamp = Date.now()) {
+    const normalized = normalizeHandle(handle);
+    if (!normalized) return;
+
+    upsertProfileHandle(handle);
+    lastSeenMap[normalized] = timestamp;
+    saveLastSeenFile().catch(() => {});
+}
+
+function isHandleCurrentlyActive(handle) {
+    const normalized = normalizeHandle(handle);
+    if (!normalized) return false;
+
+    for (const client of wss.clients) {
+        if (client.readyState !== WebSocket.OPEN) continue;
+        if (normalizeHandle(client.userHandle) === normalized) {
+            return true;
+        }
+    }
+
+    const heartbeatAt = Number(heartbeatSeenMap.get(normalized)) || 0;
+    if (!heartbeatAt) return false;
+
+    return (Date.now() - heartbeatAt) <= PRESENCE_HEARTBEAT_ACTIVE_MS;
+}
+
+function getHandlePresence(handle) {
+    const normalized = normalizeHandle(handle);
+    if (!normalized) {
+        return { handle: String(handle || ''), active: false, lastSeen: null };
+    }
+
+    const active = isHandleCurrentlyActive(normalized);
+    const lastSeen = Number(lastSeenMap[normalized]) || null;
+    return {
+        handle: String(handle || ''),
+        active,
+        lastSeen
+    };
 }
 
 function ensureSequentialBlitzNumbers(results = []) {
@@ -313,6 +469,144 @@ async function resolveTieWinnerByRules(player1Handle, player2Handle) {
     return player1Handle;
 }
 
+function normalizeBracketHandleToken(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function isPlaceholderBracketHandle(value) {
+    return /winner|loser|champion|slot/i.test(String(value || ''));
+}
+
+function isByeBracketHandle(value) {
+    return normalizeBracketHandleToken(value) === 'bye';
+}
+
+function isConcreteBracketHandle(value) {
+    const normalized = normalizeBracketHandleToken(value);
+    if (!normalized) return false;
+    if (isByeBracketHandle(normalized)) return false;
+    return !isPlaceholderBracketHandle(normalized);
+}
+
+function getWinnerSlotToken(matchId) {
+    const parsed = /^m(\d+)$/i.exec(String(matchId || ''));
+    if (!parsed) return null;
+    return `winner m${parsed[1]}`;
+}
+
+function applyWinnerToNextSlots(bracket, sourceMatch, winnerHandle) {
+    const winnerToken = getWinnerSlotToken(sourceMatch?.id);
+    if (!winnerToken || !winnerHandle || !Array.isArray(bracket?.matches)) return false;
+
+    let changed = false;
+    for (const candidate of bracket.matches) {
+        if (!candidate || candidate.status === 'completed') continue;
+
+        if (normalizeBracketHandleToken(candidate.p1) === winnerToken) {
+            candidate.p1 = winnerHandle;
+            changed = true;
+        }
+
+        if (normalizeBracketHandleToken(candidate.p2) === winnerToken) {
+            candidate.p2 = winnerHandle;
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
+function getLatestCompletedWinnerBySide(bracket, side) {
+    const completed = (bracket?.matches || [])
+        .filter(match => match?.bracketSide === side && match.status === 'completed' && isConcreteBracketHandle(match.winner))
+        .sort((a, b) => Number(b.round || 0) - Number(a.round || 0));
+
+    return completed.length > 0 ? completed[0].winner : null;
+}
+
+function applyChampionPlaceholders(bracket) {
+    if (!Array.isArray(bracket?.matches)) return false;
+
+    const winnersChampion = getLatestCompletedWinnerBySide(bracket, 'main');
+    const losersChampion = getLatestCompletedWinnerBySide(bracket, 'losers');
+    let changed = false;
+
+    for (const candidate of bracket.matches) {
+        if (!candidate || candidate.status === 'completed') continue;
+
+        if (winnersChampion && normalizeBracketHandleToken(candidate.p1) === 'winners bracket champion') {
+            candidate.p1 = winnersChampion;
+            changed = true;
+        }
+        if (winnersChampion && normalizeBracketHandleToken(candidate.p2) === 'winners bracket champion') {
+            candidate.p2 = winnersChampion;
+            changed = true;
+        }
+
+        if (losersChampion && normalizeBracketHandleToken(candidate.p1) === 'losers bracket champion') {
+            candidate.p1 = losersChampion;
+            changed = true;
+        }
+        if (losersChampion && normalizeBracketHandleToken(candidate.p2) === 'losers bracket champion') {
+            candidate.p2 = losersChampion;
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
+function autoAdvanceBracketByes(bracket) {
+    if (!Array.isArray(bracket?.matches)) return false;
+
+    let anyChanged = false;
+    let progressed = true;
+
+    while (progressed) {
+        progressed = false;
+
+        for (const match of bracket.matches) {
+            if (!match || match.status === 'completed') continue;
+
+            const p1 = String(match.p1 || '').trim();
+            const p2 = String(match.p2 || '').trim();
+
+            let winner = null;
+            if (isByeBracketHandle(p1) && isConcreteBracketHandle(p2)) {
+                winner = p2;
+            } else if (isByeBracketHandle(p2) && isConcreteBracketHandle(p1)) {
+                winner = p1;
+            }
+
+            if (!winner) continue;
+
+            match.status = 'completed';
+            match.winner = winner;
+            match.result = {
+                winnerOriginal: winner,
+                winnerResolved: winner,
+                player1Score: isByeBracketHandle(p1) ? 0 : null,
+                player2Score: isByeBracketHandle(p2) ? 0 : null,
+                finishedAt: new Date().toISOString(),
+                autoAdvanced: 'bye'
+            };
+
+            const advanced = applyWinnerToNextSlots(bracket, match, winner);
+            const championsUpdated = applyChampionPlaceholders(bracket);
+
+            progressed = progressed || advanced || championsUpdated || true;
+            anyChanged = true;
+        }
+
+        if (applyChampionPlaceholders(bracket)) {
+            progressed = true;
+            anyChanged = true;
+        }
+    }
+
+    return anyChanged;
+}
+
 async function updateBracketMatchFromResult(resultPayload) {
     const roomId = resultPayload?.roomId;
     if (!roomId) return;
@@ -344,6 +638,14 @@ async function updateBracketMatchFromResult(resultPayload) {
                 player2Score: resultPayload?.player2?.score ?? null,
                 finishedAt: resultPayload?.date || new Date().toISOString()
             };
+
+            const propagated = applyWinnerToNextSlots(bracket, match, winnerHandle);
+            const championUpdated = applyChampionPlaceholders(bracket);
+            const autoByeAdvanced = autoAdvanceBracketByes(bracket);
+
+            if (propagated || championUpdated || autoByeAdvanced) {
+                changed = true;
+            }
 
             changed = true;
         }
@@ -1094,6 +1396,7 @@ function broadcastActiveRooms() {
 // WebSocket connection
 wss.on('connection', (ws) => {
     console.log('New WebSocket connection');
+    ws.userHandle = '';
     
     ws.on('message', async (message) => {
         try {
@@ -1135,6 +1438,13 @@ wss.on('connection', (ws) => {
                 case 'GET_ACTIVE_ROOMS':
                     sendActiveRooms(ws);
                     break;
+
+                case 'SET_ACTIVE_HANDLE':
+                    if (typeof data.handle === 'string' && data.handle.trim()) {
+                        ws.userHandle = data.handle.trim();
+                        markHandleSeen(ws.userHandle, Date.now());
+                    }
+                    break;
             }
         } catch (error) {
             console.error('WebSocket message error:', error);
@@ -1142,6 +1452,10 @@ wss.on('connection', (ws) => {
     });
     
     ws.on('close', () => {
+        if (ws.userHandle) {
+            markHandleSeen(ws.userHandle, Date.now());
+        }
+
         for (const [_, room] of rooms.entries()) {
             const playerIndex = room.players.findIndex(player => player.ws === ws);
             if (playerIndex !== -1) {
@@ -1199,6 +1513,9 @@ async function handleCreateRoom(ws, data) {
         problemCount: Array.isArray(data.problems) ? data.problems.length : 7,
         validationFailureMessage: 'Validation problem generation failed. Please recreate room.'
     });
+
+    ws.userHandle = data.handle;
+    markHandleSeen(data.handle, Date.now());
     
     ws.send(JSON.stringify({
         type: 'ROOM_CREATED',
@@ -1401,6 +1718,8 @@ function handleJoinRoom(ws, data) {
     const existingIndex = room.players.findIndex(player => player.handle === data.handle);
     if (existingIndex !== -1) {
         room.players[existingIndex].ws = ws;
+        ws.userHandle = data.handle;
+        markHandleSeen(data.handle, Date.now());
         
         ws.send(JSON.stringify({
             type: 'REJOIN_SUCCESS',
@@ -1421,6 +1740,8 @@ function handleJoinRoom(ws, data) {
     }
 
     room.players.push({ handle: data.handle, ws });
+    ws.userHandle = data.handle;
+    markHandleSeen(data.handle, Date.now());
 
     if (room.noOpponentTimeout && getAssignedPlayersCount(room) >= 2) {
         clearTimeout(room.noOpponentTimeout);
@@ -1482,6 +1803,8 @@ function handleRejoinRoom(ws, data) {
     }
 
     room.players[playerIndex].ws = ws;
+    ws.userHandle = data.handle;
+    markHandleSeen(data.handle, Date.now());
     
     ws.send(JSON.stringify({
         type: 'REJOIN_SUCCESS',
@@ -1594,6 +1917,46 @@ app.get('/api/results', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+});
+
+app.get('/api/presence/:handle', (req, res) => {
+    const handle = String(req.params.handle || '').trim();
+    if (!handle) {
+        res.status(400).json({ error: 'handle is required' });
+        return;
+    }
+
+    res.json(getHandlePresence(handle));
+});
+
+app.get('/api/profiles', (req, res) => {
+    res.json(getAllProfiles());
+});
+
+app.post('/api/profiles', (req, res) => {
+    const handle = String(req.body?.handle || '').trim();
+    if (!handle) {
+        res.status(400).json({ error: 'handle is required' });
+        return;
+    }
+
+    upsertProfileHandle(handle);
+    res.json({ success: true });
+});
+
+app.post('/api/presence/ping', (req, res) => {
+    const handle = String(req.body?.handle || '').trim();
+    if (!handle) {
+        res.status(400).json({ error: 'handle is required' });
+        return;
+    }
+
+    const normalized = normalizeHandle(handle);
+    const now = Date.now();
+    heartbeatSeenMap.set(normalized, now);
+    markHandleSeen(handle, now);
+
+    res.json({ success: true, now });
 });
 
 app.post('/api/results', async (req, res) => {
@@ -1727,6 +2090,9 @@ app.post('/api/brackets', async (req, res) => {
             createdAt: new Date().toISOString()
         };
 
+        autoAdvanceBracketByes(bracket);
+        applyChampionPlaceholders(bracket);
+
         const brackets = await readBrackets();
         brackets.unshift(bracket);
         await writeBrackets(brackets);
@@ -1799,6 +2165,11 @@ app.post('/api/brackets/:bracketId/matches/:matchId/create-room', async (req, re
             return;
         }
 
+        if (/\bbye\b/i.test(`${match.p1} ${match.p2}`)) {
+            res.status(400).json({ error: 'This match includes BYE and should auto-advance without room creation.' });
+            return;
+        }
+
         if (match.roomId && rooms.has(match.roomId)) {
             res.json({ success: true, roomId: match.roomId, alreadyExists: true });
             return;
@@ -1825,7 +2196,32 @@ app.post('/api/brackets/:bracketId/matches/:matchId/create-room', async (req, re
     }
 });
 
-Promise.all([initResultsFile(), initBracketsFile()]).then(() => {
+const RESERVED_HANDLE_PATHS = new Set([
+    'index',
+    'results',
+    'bracket',
+    'headtohead',
+    'leaderboard',
+    'profile',
+    'api'
+]);
+
+app.get('/:handle([A-Za-z0-9_-]{1,24})', (req, res, next) => {
+    const handle = String(req.params.handle || '').trim();
+    if (!handle) {
+        next();
+        return;
+    }
+
+    if (RESERVED_HANDLE_PATHS.has(handle.toLowerCase())) {
+        next();
+        return;
+    }
+
+    res.redirect(302, `/profile.html?handle=${encodeURIComponent(handle)}`);
+});
+
+Promise.all([initResultsFile(), initBracketsFile(), initLastSeenFile(), initProfilesFile()]).then(() => {
     setInterval(() => {
         rooms.forEach(room => {
             evaluateRoomValidationAndAutoStart(room).catch(() => {});

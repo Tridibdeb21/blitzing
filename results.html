@@ -8,17 +8,30 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
+        <div class="quick-nav">
+            <a href="index.html" class="quick-nav-btn">Arena</a>
+            <a href="index.html#roomControls" class="quick-nav-btn">Rooms</a>
+            <a href="index.html#activeBlitzSection" class="quick-nav-btn">Active</a>
+            <a href="bracket.html" class="quick-nav-btn">Bracket</a>
+            <a href="headtohead.html" class="quick-nav-btn">Head-to-Head</a>
+            <a href="profile.html" class="quick-nav-btn">Profile</a>
+            <a href="leaderboard.html" class="quick-nav-btn">Global Leaderboard</a>
+            <a href="results.html" class="quick-nav-btn">Results</a>
+        </div>
+
+        <div class="blitz-header">
             <div>
                 <h1>Results Archive</h1>
                 <p class="subtitle">Recent blitz history and player outcomes</p>
             </div>
-            <div class="header-buttons">
-                <a href="index.html" class="back-btn">Arena</a>
-                <a href="index.html#activeBlitzSection" class="back-btn">Active Rooms</a>
-                <a href="bracket.html" class="back-btn">Bracket</a>
-                <button class="clear-btn" id="clearAllBtn">Clear All</button>
+            <div class="user-panel">
+                <a href="index.html" class="global-handle-chip not-verified" data-global-handle-chip>Not verified</a>
             </div>
+        </div>
+
+        <div class="results-top-actions">
+            <input type="text" id="resultsSearchInput" class="results-search-input" placeholder="Search by handle, room ID, winner, blitz #">
+            <button class="clear-btn" id="clearAllBtn">Clear All</button>
         </div>
 
         <div class="stats-grid" id="statsGrid">
@@ -75,6 +88,14 @@
         </div>
     </div>
 
+    <div class="modal" id="userStatsModal">
+        <div class="modal-content">
+            <h2 id="userStatsTitle">User Stats</h2>
+            <div id="userStatsContent"></div>
+            <button class="close-btn" id="closeUserStatsModal">Close</button>
+        </div>
+    </div>
+
     <footer class="site-footer">
         <p>© 2026 PUC Blitz Cup. All rights reserved.</p>
         <p>
@@ -84,6 +105,7 @@
         </p>
     </footer>
 
+    <script src="global-profile-presence.js"></script>
     <script>
         const API_BASE_URL = window.location.origin;
         const WS_URL = window.location.origin.replace('http', 'ws');
@@ -99,8 +121,17 @@
         const adminPasswordInput = document.getElementById('adminPasswordInput');
         const confirmAdminPassword = document.getElementById('confirmAdminPassword');
         const cancelAdminPassword = document.getElementById('cancelAdminPassword');
+        const userStatsModal = document.getElementById('userStatsModal');
+        const userStatsTitle = document.getElementById('userStatsTitle');
+        const userStatsContent = document.getElementById('userStatsContent');
+        const closeUserStatsModal = document.getElementById('closeUserStatsModal');
+        const resultsSearchInput = document.getElementById('resultsSearchInput');
         const focusRoomId = (new URLSearchParams(window.location.search).get('roomId') || '').trim().toUpperCase();
+        const focusHandle = (new URLSearchParams(window.location.search).get('handle') || '').trim();
+        const focusHandleNormalized = focusHandle.toLowerCase();
+        let searchQuery = '';
         let focusedMatchModalOpened = false;
+        let cachedResults = [];
 
         function getRankColor(rank) {
             const colors = {
@@ -121,14 +152,41 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/api/results`);
                 const results = await response.json();
-
-                displayStats(results);
-                displayResults(results);
+                cachedResults = Array.isArray(results) ? results : [];
+                refreshResultsView();
             } catch (error) {
                 console.error('Error loading results:', error);
                 document.getElementById('resultsBody').innerHTML =
                     '<tr><td colspan="8" class="no-data">No results found. Start a blitz match first.</td></tr>';
             }
+        }
+
+        function refreshResultsView() {
+            const filteredResults = getFilteredResults(cachedResults);
+            displayStats(filteredResults);
+            displayResults(cachedResults);
+        }
+
+        function getFilteredResults(results) {
+            return results.filter(item => {
+                const p1 = String(item?.player1?.handle || '').toLowerCase();
+                const p2 = String(item?.player2?.handle || '').toLowerCase();
+
+                if (focusHandle && p1 !== focusHandleNormalized && p2 !== focusHandleNormalized) {
+                    return false;
+                }
+
+                if (!searchQuery) {
+                    return true;
+                }
+
+                const winner = String(item?.winner || '').toLowerCase();
+                const roomId = String(item?.roomId || '').toLowerCase();
+                const blitzNumber = String(item?.blitzNumber || '').toLowerCase();
+                const date = item?.date ? new Date(item.date).toLocaleString().toLowerCase() : '';
+                const searchableText = `${p1} ${p2} ${winner} ${roomId} ${blitzNumber} ${date}`;
+                return searchableText.includes(searchQuery);
+            });
         }
 
         function connectResultsSocket() {
@@ -165,6 +223,21 @@
             if (totalMatches === 0) {
                 bestWinRateEl.textContent = '-';
                 avgScoreEl.textContent = '0';
+                return;
+            }
+
+            if (focusHandle) {
+                const stats = buildUserStats(focusHandle, results);
+                bestWinRateEl.textContent = `${stats.handle} (${stats.winRate}% · ${stats.wins}/${stats.played})`;
+                const totalFocusedScore = results.reduce((sum, match) => {
+                    const p1 = String(match?.player1?.handle || '').toLowerCase();
+                    const p2 = String(match?.player2?.handle || '').toLowerCase();
+                    if (p1 === focusHandleNormalized) return sum + (Number(match?.player1?.score) || 0);
+                    if (p2 === focusHandleNormalized) return sum + (Number(match?.player2?.score) || 0);
+                    return sum;
+                }, 0);
+                const focusedAvg = totalMatches > 0 ? (totalFocusedScore / totalMatches) : 0;
+                avgScoreEl.textContent = focusedAvg.toFixed(1);
                 return;
             }
 
@@ -230,14 +303,80 @@
             avgScoreEl.textContent = avgScore.toFixed(1);
         }
 
+        function buildUserStats(handle, results) {
+            const target = String(handle || '').trim();
+            const targetNorm = target.toLowerCase();
+            const entries = (results || []).filter(match => {
+                const p1 = String(match?.player1?.handle || '').toLowerCase();
+                const p2 = String(match?.player2?.handle || '').toLowerCase();
+                return p1 === targetNorm || p2 === targetNorm;
+            });
+
+            let wins = 0;
+            let losses = 0;
+            let ties = 0;
+            let scoreSum = 0;
+            const opponents = new Map();
+
+            entries.forEach(match => {
+                const p1 = match?.player1?.handle;
+                const p2 = match?.player2?.handle;
+                const winner = match?.winner;
+
+                const winnerNorm = String(winner || '').toLowerCase();
+                if (winnerNorm === 'tie') ties += 1;
+                else if (winnerNorm === targetNorm) wins += 1;
+                else losses += 1;
+
+                if (String(p1 || '').toLowerCase() === targetNorm) scoreSum += Number(match?.player1?.score) || 0;
+                if (String(p2 || '').toLowerCase() === targetNorm) scoreSum += Number(match?.player2?.score) || 0;
+
+                const opp = String(p1 || '').toLowerCase() === targetNorm ? p2 : p1;
+                if (opp) opponents.set(opp, (opponents.get(opp) || 0) + 1);
+            });
+
+            const played = entries.length;
+            const winRate = played > 0 ? ((wins / played) * 100).toFixed(1) : '0.0';
+            const avgScore = played > 0 ? (scoreSum / played).toFixed(1) : '0.0';
+            const opponentList = Array.from(opponents.entries()).sort((a, b) => b[1] - a[1]);
+
+            return { handle: target, played, wins, losses, ties, winRate, avgScore, opponentList };
+        }
+
+        function openUserStats(handle) {
+            const stats = buildUserStats(handle, cachedResults);
+            userStatsTitle.textContent = `${stats.handle} · Stats`;
+
+            const opponentsHtml = stats.opponentList.length > 0
+                ? stats.opponentList.map(([opp, count]) => `<a href="#" class="stats-user-link" data-handle="${opp}">${opp}</a> (${count})`).join(', ')
+                : 'No match history yet.';
+
+            userStatsContent.innerHTML = `
+                <div class="user-stats-grid">
+                    <div class="user-stats-item"><span>Played</span><strong>${stats.played}</strong></div>
+                    <div class="user-stats-item"><span>Wins</span><strong>${stats.wins}</strong></div>
+                    <div class="user-stats-item"><span>Losses</span><strong>${stats.losses}</strong></div>
+                    <div class="user-stats-item"><span>Ties</span><strong>${stats.ties}</strong></div>
+                    <div class="user-stats-item"><span>Win Rate</span><strong>${stats.winRate}%</strong></div>
+                    <div class="user-stats-item"><span>Avg Score</span><strong>${stats.avgScore}</strong></div>
+                </div>
+                <p style="margin-top:10px;"><strong>Played with:</strong> ${opponentsHtml}</p>
+                <p style="margin-top:8px;"><a class="stats-user-link" href="results.html?handle=${encodeURIComponent(stats.handle)}">History of ${stats.handle}</a></p>
+            `;
+
+            userStatsModal.style.display = 'flex';
+        }
+
         function displayResults(results) {
             const tbody = document.getElementById('resultsBody');
-            if (results.length === 0) {
+            const filtered = getFilteredResults(results);
+
+            if (filtered.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" class="no-data">No results found. Start a blitz match first.</td></tr>';
                 return;
             }
 
-            const orderedResults = [...results].sort((a, b) => {
+            const orderedResults = [...filtered].sort((a, b) => {
                 const aNum = Number(a.blitzNumber) || 0;
                 const bNum = Number(b.blitzNumber) || 0;
                 if (bNum !== aNum) return bNum - aNum;
@@ -262,13 +401,13 @@
                         <span class="timestamp">${formattedTime}</span>
                     </td>
                     <td>
-                        <a href="https://codeforces.com/profile/${r.player1.handle}" target="_blank" class="player-link" style="color: ${getRankColor(r.player1.rank)};">
+                        <a href="#" data-handle="${r.player1.handle}" class="player-link stats-user-link" style="color: ${getRankColor(r.player1.rank)};">
                             ${r.player1.handle}
                         </a>
                     </td>
                     <td><strong>${r.player1.score}</strong></td>
                     <td>
-                        <a href="https://codeforces.com/profile/${r.player2.handle}" target="_blank" class="player-link" style="color: ${getRankColor(r.player2.rank)};">
+                        <a href="#" data-handle="${r.player2.handle}" class="player-link stats-user-link" style="color: ${getRankColor(r.player2.rank)};">
                             ${r.player2.handle}
                         </a>
                     </td>
@@ -315,13 +454,13 @@
                         ${problemUrl ? `<div><a href="${problemUrl}" target="_blank" class="problem-link muted-link">Open problem link</a></div>` : ''}
                         <div class="problem-players">
                             <div>
-                                <a href="https://codeforces.com/profile/${result.player1.handle}" target="_blank" style="color: ${getRankColor(result.player1.rank)};">
+                                <a href="#" data-handle="${result.player1.handle}" class="stats-user-link" style="color: ${getRankColor(result.player1.rank)};">
                                     ${result.player1.handle}
                                 </a>:
                                 ${p.p1Result.solved ? '✅' : '❌'}
                             </div>
                             <div>
-                                <a href="https://codeforces.com/profile/${result.player2.handle}" target="_blank" style="color: ${getRankColor(result.player2.rank)};">
+                                <a href="#" data-handle="${result.player2.handle}" class="stats-user-link" style="color: ${getRankColor(result.player2.rank)};">
                                     ${result.player2.handle}
                                 </a>:
                                 ${p.p2Result.solved ? '✅' : '❌'}
@@ -346,6 +485,13 @@
             adminPasswordInput.value = '';
             adminPasswordInput.focus();
         });
+
+        if (resultsSearchInput) {
+            resultsSearchInput.addEventListener('input', () => {
+                searchQuery = String(resultsSearchInput.value || '').trim().toLowerCase();
+                refreshResultsView();
+            });
+        }
 
         confirmAdminPassword.addEventListener('click', async () => {
             const enteredPassword = adminPasswordInput.value;
@@ -394,6 +540,21 @@
             modal.style.display = 'none';
         });
 
+        if (closeUserStatsModal) {
+            closeUserStatsModal.addEventListener('click', () => {
+                userStatsModal.style.display = 'none';
+            });
+        }
+
+        document.body.addEventListener('click', (event) => {
+            const handleLink = event.target.closest('.stats-user-link');
+            if (!handleLink) return;
+            const handle = handleLink.dataset.handle;
+            if (!handle) return;
+            event.preventDefault();
+            openUserStats(handle);
+        });
+
         window.addEventListener('click', (e) => {
             if (e.target === modal) {
                 modal.style.display = 'none';
@@ -401,11 +562,15 @@
             if (e.target === adminPasswordModal) {
                 adminPasswordModal.style.display = 'none';
             }
+            if (e.target === userStatsModal) {
+                userStatsModal.style.display = 'none';
+            }
         });
 
         connectResultsSocket();
         startAutoRefresh();
         loadResults();
     </script>
+    <script src="search-suggestions.js"></script>
 </body>
 </html>

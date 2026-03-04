@@ -325,6 +325,136 @@
         return /winner|loser|champion|slot/i.test(`${match.p1} ${match.p2}`);
     }
 
+    function isConcreteHandle(handle) {
+        const text = String(handle || '').trim();
+        if (!text) return false;
+        return !/winner|loser|champion|slot|bye/i.test(text);
+    }
+
+    function computeBracketStandings(bracket) {
+        const participants = Array.isArray(bracket?.participants) ? bracket.participants : [];
+        const rows = participants.map(handle => ({
+            handle,
+            played: 0,
+            wins: 0,
+            losses: 0,
+            ties: 0,
+            points: 0,
+            tieBreakStatus: 'Clear'
+        }));
+
+        const rowMap = new Map(rows.map(item => [String(item.handle).toLowerCase(), item]));
+
+        (bracket?.matches || []).forEach(match => {
+            if (match?.status !== 'completed' || !match?.result) return;
+            const left = String(match.p1 || '');
+            const right = String(match.p2 || '');
+            if (!isConcreteHandle(left) || !isConcreteHandle(right)) return;
+
+            const leftKey = left.toLowerCase();
+            const rightKey = right.toLowerCase();
+            const leftRow = rowMap.get(leftKey);
+            const rightRow = rowMap.get(rightKey);
+            if (!leftRow || !rightRow) return;
+
+            const leftScore = Number(match?.result?.player1Score) || 0;
+            const rightScore = Number(match?.result?.player2Score) || 0;
+            const winner = String(match?.winner || '').toLowerCase();
+
+            leftRow.played += 1;
+            rightRow.played += 1;
+            leftRow.points += leftScore;
+            rightRow.points += rightScore;
+
+            if (winner === 'tie') {
+                leftRow.ties += 1;
+                rightRow.ties += 1;
+            } else if (winner === leftKey) {
+                leftRow.wins += 1;
+                rightRow.losses += 1;
+            } else if (winner === rightKey) {
+                rightRow.wins += 1;
+                leftRow.losses += 1;
+            }
+        });
+
+        rows.sort((a, b) => {
+            if (b.wins !== a.wins) return b.wins - a.wins;
+            if (b.points !== a.points) return b.points - a.points;
+            return a.handle.localeCompare(b.handle);
+        });
+
+        const groups = new Map();
+        rows.forEach(row => {
+            const key = `${row.wins}:${row.points}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(row);
+        });
+
+        const winsGroups = new Map();
+        rows.forEach(row => {
+            if (!winsGroups.has(row.wins)) winsGroups.set(row.wins, []);
+            winsGroups.get(row.wins).push(row);
+        });
+
+        rows.forEach(row => {
+            const exact = groups.get(`${row.wins}:${row.points}`) || [];
+            if (exact.length > 1) {
+                row.tieBreakStatus = 'Still tied';
+                return;
+            }
+
+            const sameWins = winsGroups.get(row.wins) || [];
+            if (sameWins.length > 1) {
+                row.tieBreakStatus = 'By points';
+                return;
+            }
+
+            row.tieBreakStatus = 'Clear';
+        });
+
+        return rows;
+    }
+
+    function renderStandingsPanel(bracket) {
+        const standings = computeBracketStandings(bracket);
+        if (!standings.length) {
+            return '<div class="standings-panel"><h4>Standings</h4><p class="note">No participants found.</p></div>';
+        }
+
+        const rowsHtml = standings.map((row, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${row.handle}</td>
+                <td>${row.played}</td>
+                <td>${row.wins}</td>
+                <td>${row.points}</td>
+                <td>${row.tieBreakStatus}</td>
+            </tr>
+        `).join('');
+
+        return `
+            <div class="standings-panel">
+                <h4>Standings</h4>
+                <div class="standings-table-wrap">
+                    <table class="standings-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Handle</th>
+                                <th>P</th>
+                                <th>W</th>
+                                <th>Pts</th>
+                                <th>Tie-break</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
     function getAllConcreteHandles(brackets) {
         const handles = new Set();
         (brackets || []).forEach(bracket => {
@@ -406,6 +536,7 @@
         const ratingsMap = await fetchRatingsMap(getAllConcreteHandles([bracket]));
 
         const groups = groupMatches(bracket.matches || []);
+        const standingsHtml = renderStandingsPanel(bracket);
         const html = groups.map(group => {
             const matches = group.matches.map(match => {
                 const status = match.status === 'completed'
@@ -444,7 +575,12 @@
             `;
         }).join('');
 
-        outputContent.innerHTML = `<div class="bracket-tree">${html}</div>`;
+        outputContent.innerHTML = `
+            <div class="bracket-layout">
+                <div class="bracket-tree">${html}</div>
+                ${standingsHtml}
+            </div>
+        `;
         drawAllTreeConnections();
     }
 
@@ -467,6 +603,7 @@
             const cards = brackets.map(bracket => {
                 const isExpanded = expandedBracketIds.has(bracket.id);
                 const groups = groupMatches(bracket.matches || []);
+                const standingsHtml = renderStandingsPanel(bracket);
                 const matchesHtml = groups.map(group => {
                     const items = group.matches.map(match => {
                         const ready = !isPlaceholderMatch(match);
@@ -530,7 +667,10 @@
                         </div>
                         <div class="saved-details" style="display:${isExpanded ? 'block' : 'none'};">
                             <div class="saved-meta" style="margin-bottom:10px;">${bracket.type} · ${bracket.participants.length} participants · Owner: ${bracket.ownerHandle} · ${(bracket.roomConfig?.problemCount ?? bracket.roomConfig?.problems?.length ?? 7)} problems · ${(bracket.roomConfig?.duration ?? 40)}m · ${(bracket.roomConfig?.interval ?? 1)}s check</div>
-                            <div class="bracket-tree">${matchesHtml}</div>
+                            <div class="bracket-layout">
+                                <div class="bracket-tree">${matchesHtml}</div>
+                                ${standingsHtml}
+                            </div>
                         </div>
                     </div>
                 `;

@@ -1,0 +1,242 @@
+:root {
+    --bg: #0b0d12;
+    --panel: #121720;
+    --border: #252d3b;
+    --text: #f3f5f8;
+    --muted: #97a3b6;
+    --radius: 14px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: Inter, Segoe UI, Roboto, system-ui, sans-serif;
+}
+
+body {
+    background: radial-gradient(circle at 20% 0%, #131824 0%, #0b0d12 45%, #090b0f 100%);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.blitz-header,
+.panel,
+.stat-card,
+.table-wrap {
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+    border-radius: var(--radius);
+}
+
+.quick-nav {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.quick-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--muted);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: 0.2s ease;
+}
+
+.quick-nav-btn:hover {
+    border-color: #3a4b67;
+    color: var(--text);
+    background: rgba(110, 168, 254, 0.08);
+}
+
+.blitz-header {
+    padding: 18px;
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+h1 {
+    font-size: 1.8rem;
+}
+
+.subtitle,
+.note {
+    color: var(--muted);
+}
+
+.panel {
+    padding: 16px;
+    margin-bottom: 14px;
+}
+
+.user-panel {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.global-handle-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 12px;
+    background: var(--panel);
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.global-handle-chip.not-verified {
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.global-handle-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    object-fit: cover;
+}
+
+.nav-btn,
+.primary-btn {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    text-decoration: none;
+    background: #1b2232;
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.primary-btn {
+    margin-top: 10px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+label {
+    color: var(--muted);
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+}
+
+input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 10px 12px;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+    gap: 10px;
+}
+
+.stat-card {
+    padding: 10px;
+}
+
+.stat-card h3 {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+}
+
+.stat-card strong {
+    font-size: 1.05rem;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    padding: 10px;
+    font-size: 0.9rem;
+}
+
+tbody tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.win {
+    color: #5acb8a;
+    font-weight: 700;
+}
+
+.loss {
+    color: #ff7d7d;
+    font-weight: 700;
+}
+
+.tie {
+    color: #9dc4ff;
+    font-weight: 700;
+}
+
+.site-footer {
+    margin-top: 14px;
+    text-align: center;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+}
+
+.site-footer a {
+    color: #9dc4ff;
+    text-decoration: none;
+}
+
+@media (max-width: 860px) {
+    .blitz-header,
+    .user-panel {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .form-grid,
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
