@@ -8,14 +8,24 @@
 </head>
 <body>
     <div class="container">
-        <header class="header-card">
+        <div class="quick-nav">
+            <a href="index.html" class="quick-nav-btn">Arena</a>
+            <a href="index.html#roomControls" class="quick-nav-btn">Rooms</a>
+            <a href="index.html#activeBlitzSection" class="quick-nav-btn">Active</a>
+            <a href="bracket.html" class="quick-nav-btn">Bracket</a>
+            <a href="headtohead.html" class="quick-nav-btn">Head-to-Head</a>
+            <a href="profile.html" class="quick-nav-btn">Profile</a>
+            <a href="leaderboard.html" class="quick-nav-btn">Global Leaderboard</a>
+            <a href="results.html" class="quick-nav-btn">Results</a>
+        </div>
+
+        <header class="blitz-header">
             <div>
                 <h1>Bracket Builder</h1>
                 <p class="subtitle">Create tournament structure for your blitz events</p>
             </div>
-            <div class="header-actions">
-                <a href="index.html" class="nav-btn">Arena</a>
-                <a href="results.html" class="nav-btn">Results</a>
+            <div class="user-panel">
+                <a href="index.html" class="global-handle-chip not-verified" data-global-handle-chip>Not verified</a>
             </div>
         </header>
 
@@ -101,6 +111,8 @@
         </footer>
     </div>
 
+    <script src="global-profile-presence.js"></script>
     <script src="bracket.js"></script>
+    <script src="search-suggestions.js"></script>
 </body>
 </html>

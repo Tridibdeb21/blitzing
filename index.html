@@ -13,6 +13,9 @@
         <a href="#roomControls" class="quick-nav-btn">Rooms</a>
         <a href="#activeBlitzSection" class="quick-nav-btn">Active</a>
         <a href="bracket.html" class="quick-nav-btn">Bracket</a>
+        <a href="headtohead.html" class="quick-nav-btn">Head-to-Head</a>
+        <a href="profile.html" class="quick-nav-btn">Profile</a>
+        <a href="leaderboard.html" class="quick-nav-btn">Global Leaderboard</a>
         <a href="results.html" class="quick-nav-btn">Results</a>
     </div>
 
@@ -24,7 +27,6 @@
         <div class="user-panel">
             <button id="setHandleBtn">Set Handle</button>
             <div id="loggedInfo" class="logged-info">Not verified</div>
-            <a href="results.html" class="results-btn">View Results</a>
         </div>
     </header>
 
@@ -126,9 +128,12 @@
     </section>
 
     <section class="active-blitz-section" id="activeBlitzSection">
-        <h2>Active Rooms</h2>
+        <div class="active-head">
+            <h2>Active Rooms</h2>
+            <input type="text" id="activeRoomsSearchInput" class="active-search-input" placeholder="Search by room name or ID">
+        </div>
         <div class="blitz-list" id="activeBlitzList">
-            <div class="loading">Loading active rooms...</div>
+            <div class="live-loading"><span class="live-dot"></span><span>Live · Loading active rooms...</span></div>
         </div>
     </section>
 
@@ -144,6 +149,14 @@
             <button class="leave-room-btn" id="leaveRoomBtn">Leave Room</button>
         </div>
     </div>
+
+    <section class="spectator-panel" id="spectatorPanel" style="display: none;">
+        <div class="spectator-head">
+            <h3>Live Spectators</h3>
+            <span class="spectator-count" id="spectatorCountText">0 live</span>
+        </div>
+        <div class="spectator-list" id="spectatorList"></div>
+    </section>
 
     <section class="config-dashboard" id="configDashboard" style="display: none;">
         <div class="config-block">
@@ -244,6 +257,16 @@
     </div>
 </div>
 
+<div class="password-modal" id="userProfileModal">
+    <div class="password-content user-profile-content">
+        <h2>User Profile</h2>
+        <div id="userProfileBody" class="user-profile-body">Click on a verified handle to view profile details.</div>
+        <div class="password-buttons">
+            <button class="password-btn cancel-btn" id="closeUserProfileModal">Close</button>
+        </div>
+    </div>
+</div>
+
 <footer class="site-footer">
     <p>© 2026 PUC Blitz Cup. All rights reserved.</p>
     <p>
@@ -253,6 +276,9 @@
     </p>
 </footer>
 
+<script src="profile-presence-utils.js"></script>
+<script src="global-profile-presence.js"></script>
 <script src="script.js"></script>
+<script src="search-suggestions.js"></script>
 </body>
 </html>
