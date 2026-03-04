@@ -54,6 +54,7 @@
     let pendingSubmissionStatusReported = null;
     let userAvatarUrl = '';
     let handleVerificationProblem = null;
+    let handleVerificationChallengeId = '';
     let handleVerificationHandle = '';
     let handleVerificationTimer = null;
     let serverClockOffsetMs = 0;
@@ -222,12 +223,30 @@
     const userProfileModal = document.getElementById('userProfileModal');
     const userProfileBody = document.getElementById('userProfileBody');
     const closeUserProfileModal = document.getElementById('closeUserProfileModal');
+    const defaultGenerateHandleVerificationBtnLabel = generateHandleVerificationBtn?.textContent || 'Generate Problem';
+    let handleVerificationGenerationInFlight = false;
+
+    function setGenerateHandleButtonState({ disabled, label }) {
+        if (!generateHandleVerificationBtn) return;
+        generateHandleVerificationBtn.disabled = !!disabled;
+        generateHandleVerificationBtn.textContent = label || defaultGenerateHandleVerificationBtnLabel;
+    }
 
     const API_BASE_URL = window.location.origin;
     const WS_URL = window.location.origin.replace('http', 'ws');
     const AUTH_META_KEY = 'blitzAuthMeta';
     const AUTH_DEPLOY_TOKEN = 'v2.1';
     const AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+    const STORAGE_ENC_PREFIX = 'enc:v1:';
+    const STORAGE_ENC_SECRET = 'blitz_storage_v1';
+    const ENCRYPTED_STORAGE_KEYS = new Set([
+        'blitzUserHandle',
+        'blitzUserAvatar',
+        'blitzRoomState',
+        'blitzBattleRuntimeState',
+        'blitzPendingJoinRoomId',
+        'blitzAuthMeta'
+    ]);
 
     // Rating options
     const ratingOptions = Array.from({ length: 28 }, (_, index) => 800 + (index * 100));
@@ -253,8 +272,94 @@
         return 'blitzPendingJoinRoomId';
     }
 
+    function shouldEncryptStorageKey(key) {
+        return ENCRYPTED_STORAGE_KEYS.has(String(key || ''));
+    }
+
+    function toBase64FromBytes(bytes) {
+        let binary = '';
+        for (let index = 0; index < bytes.length; index += 1) {
+            binary += String.fromCharCode(bytes[index]);
+        }
+        return btoa(binary);
+    }
+
+    function fromBase64ToBytes(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+            bytes[index] = binary.charCodeAt(index);
+        }
+        return bytes;
+    }
+
+    function xorBytes(inputBytes, keyBytes) {
+        const output = new Uint8Array(inputBytes.length);
+        for (let index = 0; index < inputBytes.length; index += 1) {
+            output[index] = inputBytes[index] ^ keyBytes[index % keyBytes.length];
+        }
+        return output;
+    }
+
+    function encryptStorageValue(plainText) {
+        const text = String(plainText ?? '');
+        const encoder = new TextEncoder();
+        const valueBytes = encoder.encode(text);
+        const keyBytes = encoder.encode(STORAGE_ENC_SECRET);
+        const encrypted = xorBytes(valueBytes, keyBytes);
+        return `${STORAGE_ENC_PREFIX}${toBase64FromBytes(encrypted)}`;
+    }
+
+    function decryptStorageValue(rawValue) {
+        const raw = String(rawValue ?? '');
+        if (!raw.startsWith(STORAGE_ENC_PREFIX)) {
+            return null;
+        }
+
+        try {
+            const payload = raw.slice(STORAGE_ENC_PREFIX.length);
+            const encrypted = fromBase64ToBytes(payload);
+            const encoder = new TextEncoder();
+            const keyBytes = encoder.encode(STORAGE_ENC_SECRET);
+            const decrypted = xorBytes(encrypted, keyBytes);
+            const decoder = new TextDecoder();
+            return decoder.decode(decrypted);
+        } catch {
+            return '';
+        }
+    }
+
+    function storageGetItem(key) {
+        const raw = localStorage.getItem(key);
+        if (raw == null) return null;
+        if (!shouldEncryptStorageKey(key)) return raw;
+
+        const decrypted = decryptStorageValue(raw);
+        if (decrypted == null) {
+            try {
+                localStorage.setItem(key, encryptStorageValue(raw));
+            } catch {
+            }
+            return raw;
+        }
+        return decrypted;
+    }
+
+    function storageSetItem(key, value) {
+        const nextValue = String(value ?? '');
+        if (!shouldEncryptStorageKey(key)) {
+            localStorage.setItem(key, nextValue);
+            return;
+        }
+        localStorage.setItem(key, encryptStorageValue(nextValue));
+    }
+
+    function storageRemoveItem(key) {
+        localStorage.removeItem(key);
+    }
+
     function readAuthMeta() {
-        const raw = localStorage.getItem(AUTH_META_KEY);
+        const raw = storageGetItem(AUTH_META_KEY);
         if (!raw) return null;
 
         try {
@@ -270,12 +375,12 @@
     }
 
     function clearAuthSessionStorage() {
-        localStorage.removeItem(getUserHandleStorageKey());
-        localStorage.removeItem(getUserAvatarStorageKey());
-        localStorage.removeItem('blitzRoomState');
-        localStorage.removeItem(getRuntimeStateKey());
-        localStorage.removeItem(getPendingJoinRoomIdKey());
-        localStorage.removeItem(AUTH_META_KEY);
+        storageRemoveItem(getUserHandleStorageKey());
+        storageRemoveItem(getUserAvatarStorageKey());
+        storageRemoveItem('blitzRoomState');
+        storageRemoveItem(getRuntimeStateKey());
+        storageRemoveItem(getPendingJoinRoomIdKey());
+        storageRemoveItem(AUTH_META_KEY);
     }
 
     function isAuthSessionValid() {
@@ -286,7 +391,7 @@
     }
 
     function stampAuthSessionMeta() {
-        localStorage.setItem(AUTH_META_KEY, JSON.stringify({
+        storageSetItem(AUTH_META_KEY, JSON.stringify({
             issuedAt: Date.now(),
             deployToken: AUTH_DEPLOY_TOKEN
         }));
@@ -302,7 +407,7 @@
 
             const data = await response.json();
             if (!data || !data.authenticated || !data.handle) {
-                if (String(localStorage.getItem(getUserHandleStorageKey()) || '').trim()) {
+                if (String(storageGetItem(getUserHandleStorageKey()) || '').trim()) {
                     clearAuthSessionStorage();
                 }
                 if (String(userHandle || '').trim()) {
@@ -318,13 +423,15 @@
             const serverHandle = String(data.handle || '').trim();
             if (!serverHandle) return false;
 
-            if (!String(userHandle || '').trim()) {
+            const localHandle = String(userHandle || '').trim();
+            if (!localHandle || localHandle.toLowerCase() !== serverHandle.toLowerCase()) {
                 userHandle = serverHandle;
+                userAvatarUrl = '';
                 userHandleInput.value = serverHandle;
-                playersValidated = true;
             }
+            playersValidated = true;
 
-            localStorage.setItem(getUserHandleStorageKey(), userHandle || serverHandle);
+            storageSetItem(getUserHandleStorageKey(), serverHandle);
             stampAuthSessionMeta();
             renderLoggedInfo();
             return true;
@@ -333,9 +440,12 @@
         }
     }
 
-    async function createServerSessionForHandle(handle, validationProblem) {
+    async function createServerSessionForHandle(handle, challengeId) {
         const cleanHandle = String(handle || '').trim();
-        if (!cleanHandle || !validationProblem) return false;
+        const cleanChallengeId = String(challengeId || '').trim();
+        if (!cleanHandle || !cleanChallengeId) {
+            return { ok: false, error: 'Missing verification challenge' };
+        }
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/session/login`, {
@@ -344,16 +454,22 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     handle: cleanHandle,
-                    validationProblem: {
-                        contestId: Number(validationProblem.contestId),
-                        index: String(validationProblem.index || '').trim()
-                    }
+                    challengeId: cleanChallengeId
                 })
             });
 
-            return response.ok;
+            if (response.ok) {
+                return { ok: true, error: '' };
+            }
+
+            const data = await response.json().catch(() => ({}));
+            return {
+                ok: false,
+                error: String(data?.error || '').trim() || 'Verification pending',
+                status: response.status
+            };
         } catch {
-            return false;
+            return { ok: false, error: 'Could not verify handle right now' };
         }
     }
 
@@ -396,7 +512,7 @@
     }
 
     function tryJoinPendingRoom() {
-        const pendingRoomId = (localStorage.getItem(getPendingJoinRoomIdKey()) || '').trim().toUpperCase();
+        const pendingRoomId = (storageGetItem(getPendingJoinRoomIdKey()) || '').trim().toUpperCase();
         if (!pendingRoomId) return;
         if (!userHandle) return;
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -408,7 +524,7 @@
             handle: userHandle
         }));
 
-        localStorage.removeItem(getPendingJoinRoomIdKey());
+        storageRemoveItem(getPendingJoinRoomIdKey());
     }
 
     function renderLoggedInfo() {
@@ -771,13 +887,13 @@
 
     // Load saved state
     function loadSavedState() {
-        const hasPersistedHandle = !!String(localStorage.getItem(getUserHandleStorageKey()) || '').trim();
+        const hasPersistedHandle = !!String(storageGetItem(getUserHandleStorageKey()) || '').trim();
         if (hasPersistedHandle && !isAuthSessionValid()) {
             clearAuthSessionStorage();
         }
 
-        const persistedHandle = localStorage.getItem(getUserHandleStorageKey()) || '';
-        const persistedAvatar = localStorage.getItem(getUserAvatarStorageKey()) || '';
+        const persistedHandle = storageGetItem(getUserHandleStorageKey()) || '';
+        const persistedAvatar = storageGetItem(getUserAvatarStorageKey()) || '';
         if (persistedHandle) {
             userHandle = persistedHandle;
             userAvatarUrl = persistedAvatar;
@@ -786,7 +902,7 @@
             renderLoggedInfo();
         }
 
-        const saved = localStorage.getItem('blitzRoomState');
+        const saved = storageGetItem('blitzRoomState');
         if (saved) {
             try {
                 const state = JSON.parse(saved);
@@ -826,13 +942,13 @@
             isHost,
             roomData
         };
-        localStorage.setItem('blitzRoomState', JSON.stringify(state));
+        storageSetItem('blitzRoomState', JSON.stringify(state));
         if (userHandle) {
-            localStorage.setItem(getUserHandleStorageKey(), userHandle);
-            localStorage.setItem(getUserAvatarStorageKey(), userAvatarUrl || '');
+            storageSetItem(getUserHandleStorageKey(), userHandle);
+            storageSetItem(getUserAvatarStorageKey(), userAvatarUrl || '');
             stampAuthSessionMeta();
         } else {
-            localStorage.removeItem(AUTH_META_KEY);
+            storageRemoveItem(AUTH_META_KEY);
         }
     }
 
@@ -859,11 +975,11 @@
             p2SolvedProblems: Array.from(p2SolvedProblems),
             savedAt: Date.now()
         };
-        localStorage.setItem(getRuntimeStateKey(), JSON.stringify(runtimeState));
+        storageSetItem(getRuntimeStateKey(), JSON.stringify(runtimeState));
     }
 
     function loadBattleRuntimeState() {
-        const saved = localStorage.getItem(getRuntimeStateKey());
+        const saved = storageGetItem(getRuntimeStateKey());
         if (!saved) return null;
         try {
             return JSON.parse(saved);
@@ -873,12 +989,12 @@
     }
 
     function clearBattleRuntimeState() {
-        localStorage.removeItem(getRuntimeStateKey());
+        storageRemoveItem(getRuntimeStateKey());
     }
 
     // Clear saved state
     function clearSavedState() {
-        localStorage.removeItem('blitzRoomState');
+        storageRemoveItem('blitzRoomState');
         clearBattleRuntimeState();
     }
 
@@ -1778,21 +1894,21 @@
     function openHandleSetupModal() {
         userHandleInput.value = userHandle || '';
         handleVerificationProblem = null;
+        handleVerificationChallengeId = '';
         handleVerificationHandle = '';
         handleVerificationBlock.style.display = 'none';
         handleVerificationProblemLink.href = '#';
         handleVerificationStatus.textContent = 'Waiting for COMPILATION_ERROR submission...';
+        handleVerificationGenerationInFlight = false;
+        setGenerateHandleButtonState({
+            disabled: false,
+            label: defaultGenerateHandleVerificationBtnLabel
+        });
         handleSetupModal.style.display = 'flex';
         userHandleInput.focus();
     }
 
     async function completeHandleSetup(profile) {
-        const sessionReady = await createServerSessionForHandle(profile.handle, handleVerificationProblem);
-        if (!sessionReady) {
-            alert('Could not create secure server session. Please complete verification again.');
-            return;
-        }
-
         userHandle = profile.handle;
         userAvatarUrl = profile.avatar || '';
         playersValidated = true;
@@ -1821,46 +1937,60 @@
     }
 
     async function verifyHandleCompilationErrorNow() {
-        if (!handleVerificationHandle || !handleVerificationProblem) {
+        if (!handleVerificationHandle || !handleVerificationProblem || !handleVerificationChallengeId) {
             return;
         }
 
         handleVerificationStatus.textContent = 'Checking Codeforces submissions...';
-        const passed = await hasCompilationErrorOnProblem(handleVerificationHandle, handleVerificationProblem);
-        if (passed) {
+        const loginResult = await createServerSessionForHandle(handleVerificationHandle, handleVerificationChallengeId);
+        if (loginResult.ok) {
             const profile = await fetchUserProfile(handleVerificationHandle);
-            if (profile) {
-                await completeHandleSetup(profile);
+            if (!profile) {
+                handleVerificationStatus.textContent = 'Verified, but could not load profile. Try again.';
                 return;
             }
+
+            await completeHandleSetup(profile);
+            return;
         }
 
-        handleVerificationStatus.textContent = 'Not found yet. Submit COMPILATION_ERROR on the generated problem and verify again.';
+        if (Number(loginResult.status) === 410) {
+            handleVerificationStatus.textContent = 'Verification expired. Generate a new problem and submit CE again.';
+            setGenerateHandleButtonState({
+                disabled: false,
+                label: defaultGenerateHandleVerificationBtnLabel
+            });
+            handleVerificationChallengeId = '';
+            return;
+        }
+
+        handleVerificationStatus.textContent = loginResult.error || 'Not found yet. Submit COMPILATION_ERROR on the generated problem and verify again.';
     }
 
     async function startHandleVerificationFlow() {
         const handle = userHandleInput.value.trim();
         if (!handle) {
             alert('Please enter a handle');
-            return;
+            return false;
         }
 
         const profile = await fetchUserProfile(handle);
         if (!profile) {
             alert('Invalid Codeforces handle');
-            return;
+            return false;
         }
 
-        const problem = await generateHandleVerificationProblem();
-        if (!problem) {
+        const challengePayload = await requestHandleVerificationChallenge(profile.handle);
+        if (!challengePayload || !challengePayload.problem || !challengePayload.challengeId) {
             alert('Could not generate verification problem right now. Please try again.');
-            return;
+            return false;
         }
 
         handleVerificationHandle = profile.handle;
-        handleVerificationProblem = problem;
-        handleVerificationProblemLink.href = problem.url;
-        handleVerificationProblemLink.textContent = `${problem.name} · ${problem.rating}`;
+        handleVerificationChallengeId = challengePayload.challengeId;
+        handleVerificationProblem = challengePayload.problem;
+        handleVerificationProblemLink.href = handleVerificationProblem.url;
+        handleVerificationProblemLink.textContent = `${handleVerificationProblem.name} · ${handleVerificationProblem.rating}`;
         handleVerificationBlock.style.display = 'block';
         handleVerificationStatus.textContent = `Submit COMPILATION_ERROR on this problem from @${profile.handle}. Auto-checking every 5s...`;
 
@@ -1868,17 +1998,42 @@
         handleVerificationTimer = setInterval(() => {
             verifyHandleCompilationErrorNow().catch(() => {});
         }, 5000);
+
+        return true;
     }
 
     setHandleBtn.addEventListener('click', () => {
         openHandleSetupModal();
     });
 
-    generateHandleVerificationBtn.addEventListener('click', () => {
-        startHandleVerificationFlow().catch(error => {
+    generateHandleVerificationBtn.addEventListener('click', async () => {
+        if (handleVerificationGenerationInFlight || generateHandleVerificationBtn.disabled) {
+            return;
+        }
+
+        handleVerificationGenerationInFlight = true;
+        setGenerateHandleButtonState({ disabled: true, label: 'Generating...' });
+
+        try {
+            const success = await startHandleVerificationFlow();
+            if (success) {
+                setGenerateHandleButtonState({ disabled: true, label: 'Generated' });
+            } else {
+                setGenerateHandleButtonState({
+                    disabled: false,
+                    label: defaultGenerateHandleVerificationBtnLabel
+                });
+            }
+        } catch (error) {
             console.error('Handle verification flow failed:', error);
             alert('Could not start handle verification right now.');
-        });
+            setGenerateHandleButtonState({
+                disabled: false,
+                label: defaultGenerateHandleVerificationBtnLabel
+            });
+        } finally {
+            handleVerificationGenerationInFlight = false;
+        }
     });
 
     verifyHandleCeBtn.addEventListener('click', () => {
@@ -2142,6 +2297,29 @@
             return {
                 handle: user.handle,
                 avatar: user.titlePhoto || ''
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    async function requestHandleVerificationChallenge(handle) {
+        const cleanHandle = String(handle || '').trim();
+        if (!cleanHandle) return null;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/session/challenge`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ handle: cleanHandle })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) return null;
+            if (!data?.challengeId || !data?.problem) return null;
+
+            return {
+                challengeId: String(data.challengeId || '').trim(),
+                problem: data.problem
             };
         } catch {
             return null;
