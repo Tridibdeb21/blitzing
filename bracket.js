@@ -1,5 +1,7 @@
 (function () {
     const API_BASE_URL = window.location.origin;
+    const recentBracketNotifications = new Map();
+    const BRACKET_NOTIFICATION_DEDUPE_MS = 4000;
     const OWNER_KEY = 'blitzUserHandle';
     const ADMIN_HANDLES = new Set(['else_if_tridib21', 'mishkatit']);
     const STORAGE_ENC_PREFIX = 'enc:v1:';
@@ -130,6 +132,20 @@
     function showOsNotification(title, body) {
         if (!('Notification' in window) || !window.isSecureContext) return;
         if (Notification.permission !== 'granted') return;
+
+            const now = Date.now();
+            const key = `${String(title || '').trim().toLowerCase()}::${String(body || '').trim().toLowerCase()}`;
+            const previous = Number(recentBracketNotifications.get(key)) || 0;
+            if (previous > 0 && (now - previous) <= BRACKET_NOTIFICATION_DEDUPE_MS) {
+                return;
+            }
+            recentBracketNotifications.set(key, now);
+
+            for (const [savedKey, timestamp] of recentBracketNotifications.entries()) {
+                if (now - Number(timestamp) > BRACKET_NOTIFICATION_DEDUPE_MS) {
+                    recentBracketNotifications.delete(savedKey);
+                }
+            }
 
         try {
             new Notification(title, { body });
@@ -414,6 +430,10 @@
         const text = String(handle || '').trim();
         if (!text) return false;
         return !/winner|loser|champion|slot|bye/i.test(text);
+    }
+
+    function normalizeHandleToken(value) {
+        return String(value || '').trim().toLowerCase();
     }
 
     function computeBracketStandings(bracket) {
@@ -717,7 +737,11 @@
                     const items = group.matches.map(match => {
                         const ready = !isPlaceholderMatch(match);
                         const completed = match.status === 'completed';
-                        const createDisabled = !ready || completed;
+                        const mine = normalizeHandleToken(myHandle);
+                        const p1 = normalizeHandleToken(match.p1);
+                        const p2 = normalizeHandleToken(match.p2);
+                        const canCreateMatchRoom = !!mine && (isAdminHandle(myHandle) || mine === p1 || mine === p2);
+                        const createDisabled = !ready || completed || !canCreateMatchRoom;
                         const createLabel = completed
                             ? `Winner: ${match.winner || '-'}`
                             : match.roomId
@@ -902,7 +926,7 @@
         const data = await response.json();
         if (!response.ok) {
             if (response.status === 403 && !isAdminHandle(requesterHandle)) {
-                alert('Only match players, bracket creator, or admin can create this room.');
+                alert('Only assigned match players or admin can create this room.');
                 return;
             }
             alert(data.error || 'Could not create room for this match');

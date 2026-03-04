@@ -648,11 +648,33 @@ function canCreateBracketRoom(bracket, match, requesterHandle, adminPassword = '
     const requester = normalizeHandle(requesterHandle);
     if (!requester) return false;
 
-    const owner = normalizeHandle(bracket?.ownerHandle);
     const p1 = normalizeHandle(match?.p1);
     const p2 = normalizeHandle(match?.p2);
 
-    return requester === owner || requester === p1 || requester === p2;
+    return requester === p1 || requester === p2;
+}
+
+function resolveBracketRoomPlayers(match, requesterHandle, isAdminRequest = false) {
+    const p1 = String(match?.p1 || '').trim();
+    const p2 = String(match?.p2 || '').trim();
+    if (!p1 || !p2) {
+        return { hostHandle: p1, opponentHandle: p2 };
+    }
+
+    if (isAdminRequest) {
+        return { hostHandle: p1, opponentHandle: p2 };
+    }
+
+    const requester = normalizeHandle(requesterHandle);
+    if (!requester) {
+        return { hostHandle: p1, opponentHandle: p2 };
+    }
+
+    if (normalizeHandle(p2) === requester) {
+        return { hostHandle: p2, opponentHandle: p1 };
+    }
+
+    return { hostHandle: p1, opponentHandle: p2 };
 }
 
 function getBracketUsedProblemIds(bracket) {
@@ -2967,7 +2989,12 @@ app.post('/api/feedback/:feedbackId/replies', async (req, res) => {
     try {
         const feedbackId = String(req.params.feedbackId || '').trim();
         const requesterHandle = extractRequesterHandle(req);
-        const replyBy = String(requesterHandle || '').trim() || 'anonymous';
+        if (!requesterHandle) {
+            res.status(401).json({ error: 'Login required' });
+            return;
+        }
+
+        const replyBy = String(requesterHandle || '').trim();
         const message = String(req.body?.message || '').trim();
 
         if (!feedbackId) {
@@ -2981,6 +3008,25 @@ app.post('/api/feedback/:feedbackId/replies', async (req, res) => {
         }
 
         const store = await readFeedbackStore();
+        const requesterNorm = normalizeHandle(replyBy);
+        const cutoffMs = Date.now() - (24 * 60 * 60 * 1000);
+        const recentReplyCount = (Array.isArray(store.items) ? store.items : []).reduce((count, item) => {
+            const replies = Array.isArray(item?.replies) ? item.replies : [];
+            const perItemCount = replies.reduce((innerCount, replyItem) => {
+                const sameUser = normalizeHandle(replyItem?.createdBy) === requesterNorm;
+                if (!sameUser) return innerCount;
+                const createdMs = new Date(replyItem?.createdAt || 0).getTime();
+                if (!Number.isFinite(createdMs) || createdMs < cutoffMs) return innerCount;
+                return innerCount + 1;
+            }, 0);
+            return count + perItemCount;
+        }, 0);
+
+        if (recentReplyCount >= FEEDBACK_DAILY_LIMIT) {
+            res.status(429).json({ error: `Daily reply limit reached (${FEEDBACK_DAILY_LIMIT} per 24 hours)` });
+            return;
+        }
+
         const index = store.items.findIndex(item => item.id === feedbackId);
         if (index === -1) {
             res.status(404).json({ error: 'Feedback not found' });
@@ -3340,8 +3386,10 @@ app.post('/api/brackets/:bracketId/matches/:matchId/create-room', async (req, re
             return;
         }
 
+        const adminRequest = isAdminRequester(requesterHandle, adminPassword, req);
+
         if (!canCreateBracketRoom(bracket, match, requesterHandle, adminPassword, req)) {
-            res.status(403).json({ error: 'Only match players, bracket creator, or admin can create match rooms' });
+            res.status(403).json({ error: 'Only assigned match players or admin can create match rooms' });
             return;
         }
 
@@ -3378,9 +3426,11 @@ app.post('/api/brackets/:bracketId/matches/:matchId/create-room', async (req, re
             ...bracketUsedProblemIds
         ]));
 
+        const participants = resolveBracketRoomPlayers(match, requesterHandle, adminRequest);
+
         const room = await createBracketRoom({
-            hostHandle: match.p1,
-            opponentHandle: match.p2,
+            hostHandle: participants.hostHandle,
+            opponentHandle: participants.opponentHandle,
             roomName: `${bracket.name} · ${match.label} · ${match.p1} vs ${match.p2}`,
             duration: Number(body.duration) || roomConfig.duration,
             interval: Number(body.interval) || roomConfig.interval,

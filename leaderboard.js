@@ -55,10 +55,41 @@
             ties: 0,
             winRate: '0.0',
             avgScore: '0.0',
+            totalScore: 0,
             streak: '-',
             opponents: [],
             recentMatches: []
         };
+    }
+
+    function decodeStoredValue(rawValue) {
+        const raw = String(rawValue ?? '');
+        const prefix = 'enc:v1:';
+        const secret = 'blitz_storage_v1';
+        if (!raw.startsWith(prefix)) return raw;
+        try {
+            const payload = raw.slice(prefix.length);
+            const binary = atob(payload);
+            const encrypted = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                encrypted[index] = binary.charCodeAt(index);
+            }
+
+            const encoder = new TextEncoder();
+            const keyBytes = encoder.encode(secret);
+            const plainBytes = new Uint8Array(encrypted.length);
+            for (let index = 0; index < encrypted.length; index += 1) {
+                plainBytes[index] = encrypted[index] ^ keyBytes[index % keyBytes.length];
+            }
+
+            return new TextDecoder().decode(plainBytes);
+        } catch {
+            return '';
+        }
+    }
+
+    function getStoredHandle() {
+        return String(decodeStoredValue(localStorage.getItem('blitzUserHandle') || '') || '').trim();
     }
 
     function renderUserProfileModal(profile, siteStats, presence) {
@@ -84,13 +115,17 @@
         const contribution = display.contribution;
         const friendOfCount = display.friendOfCount;
         const avatar = display.avatar;
-        const stats = siteStats || (profileUtils.getEmptySiteStats ? profileUtils.getEmptySiteStats() : { played: 0, wins: 0, losses: 0, ties: 0, winRate: '0.0', avgScore: '0.0', streak: '-', opponents: [], recentMatches: [] });
+        const stats = siteStats || (profileUtils.getEmptySiteStats ? profileUtils.getEmptySiteStats() : { played: 0, wins: 0, losses: 0, ties: 0, winRate: '0.0', avgScore: '0.0', totalScore: 0, streak: '-', opponents: [], recentMatches: [] });
         const historyUrl = `results.html?handle=${encodeURIComponent(handle)}`;
         const cfUrl = `https://codeforces.com/profile/${encodeURIComponent(handle)}`;
         const handleRankClass = display.handleRankClass;
         const presenceStatus = profileUtils.getPresenceStatus
             ? profileUtils.getPresenceStatus(presence)
             : { text: 'last seen unavailable', cssClass: 'status-offline' };
+        const selfHandle = getStoredHandle();
+        const h2hUrl = selfHandle && selfHandle.toLowerCase() !== String(handle).toLowerCase()
+            ? `headtohead.html?h1=${encodeURIComponent(selfHandle)}&h2=${encodeURIComponent(handle)}`
+            : `headtohead.html?h1=${encodeURIComponent(handle)}`;
 
         const opponentsHtml = profileUtils.buildOpponentsHtml
             ? profileUtils.buildOpponentsHtml(stats, {
@@ -107,8 +142,10 @@
         userProfileBody.innerHTML = `
             <div class="user-profile-head">
                 ${avatar ? `<img src="${avatar}" alt="${handle}" class="user-profile-avatar">` : ''}
-                <div>
-                    <div class="user-profile-handle ${handleRankClass}">${handle}</div>
+                <div class="user-profile-head-info">
+                    <div class="user-profile-handle-row">
+                        <div class="user-profile-handle ${handleRankClass}">${handle}</div>
+                    </div>
                     <div class="user-presence ${presenceStatus.cssClass}"><span class="presence-dot"></span>${presenceStatus.text}</div>
                     <div class="user-profile-rank">${rank} · max ${maxRank}</div>
                 </div>
@@ -121,6 +158,8 @@
             </div>
             <div class="user-profile-links">
                 <a href="${cfUrl}" target="_blank" rel="noopener noreferrer">CF Profile</a>
+                <a href="${historyUrl}" target="_blank" rel="noopener noreferrer">History</a>
+                <a href="${h2hUrl}" target="_blank" rel="noopener noreferrer">Head-to-Head</a>
             </div>
             <div class="user-profile-site">
                 <h4>PUC Blitz Stats</h4>
@@ -130,7 +169,9 @@
                     <div class="user-profile-item"><span>Losses</span><strong>${stats.losses}</strong></div>
                     <div class="user-profile-item"><span>Ties</span><strong>${stats.ties}</strong></div>
                     <div class="user-profile-item"><span>Win Rate</span><strong>${stats.winRate}%</strong></div>
+                    <div class="user-profile-item"><span>Avg Score</span><strong>${stats.avgScore}</strong></div>
                     <div class="user-profile-item"><span>Streak</span><strong>${stats.streak}</strong></div>
+                    <div class="user-profile-item"><span>Total Score</span><strong>${stats.totalScore}</strong></div>
                 </div>
                 <div style="margin-top:8px;"><span style="color:var(--muted); font-size:0.82rem;">Played with:</span> ${opponentsHtml}</div>
                 <div class="user-recent-wrap">

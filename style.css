@@ -294,8 +294,16 @@ button:hover,
 .user-profile-content {
     max-width: 560px;
     text-align: left;
-    max-height: calc(100vh - 32px);
-    overflow-y: auto;
+}
+
+.user-profile-actions {
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.user-profile-actions .user-profile-logout-btn {
+    margin-right: 0;
 }
 
 .user-profile-body {
@@ -304,7 +312,7 @@ button:hover,
     background: var(--panel);
     padding: 12px;
     margin-top: 10px;
-    max-height: min(70vh, 560px);
+    /* max-height: min(70vh, 560px); */
     overflow-y: auto;
 }
 
@@ -377,25 +385,6 @@ button:hover,
 
 .user-presence.status-offline {
     color: var(--muted);
-}
-
-.profile-edit-handle-btn {
-    border: 1px solid var(--border);
-    background: #1b2232;
-    color: var(--text);
-    border-radius: 999px;
-    width: 24px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.8rem;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.profile-edit-handle-btn:hover {
-    filter: brightness(1.08);
 }
 
 .user-recent-wrap {
@@ -577,6 +566,14 @@ button:hover,
     display: flex;
     flex-direction: column;
     gap: 10px;
+}
+
+.room-form > button,
+.room-form > .primary-btn,
+.room-form > .add-problem-btn-small {
+    align-self: center;
+    width: auto;
+    min-width: 120px;
 }
 
 .room-form input,

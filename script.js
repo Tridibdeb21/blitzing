@@ -66,6 +66,8 @@
     const SPECTATOR_RECENT_JOIN_MS = 60000;
     const SPECTATOR_KEEP_LEFT_MS = 3 * 60 * 1000;
     let celebrationRedirectTimer = null;
+    const recentNotificationEvents = new Map();
+    const NOTIFICATION_DEDUPE_WINDOW_MS = 4000;
 
     
     // Track solved problems
@@ -222,6 +224,7 @@
     const handleVerificationStatus = document.getElementById('handleVerificationStatus');
     const userProfileModal = document.getElementById('userProfileModal');
     const userProfileBody = document.getElementById('userProfileBody');
+    const userProfileLogoutBtn = document.getElementById('userProfileLogoutBtn');
     const closeUserProfileModal = document.getElementById('closeUserProfileModal');
     const defaultGenerateHandleVerificationBtnLabel = generateHandleVerificationBtn?.textContent || 'Generate Problem';
     let handleVerificationGenerationInFlight = false;
@@ -590,6 +593,7 @@
                     ties: 0,
                     winRate: '0.0',
                     avgScore: '0.0',
+                    totalScore: 0,
                     streak: '-',
                     opponents: [],
                     recentMatches: []
@@ -670,7 +674,7 @@
                 streak = `${latestOutcome}${streakCount}`;
             }
 
-            return { played, wins, losses, ties, winRate, avgScore, streak, opponents, recentMatches };
+            return { played, wins, losses, ties, winRate, avgScore, totalScore: scoreSum, streak, opponents, recentMatches };
         } catch {
             return {
                 played: 0,
@@ -679,6 +683,7 @@
                 ties: 0,
                 winRate: '0.0',
                 avgScore: '0.0',
+                totalScore: 0,
                 streak: '-',
                 opponents: [],
                 recentMatches: []
@@ -746,6 +751,9 @@
     function openUserProfileModalLoading() {
         if (!userProfileModal || !userProfileBody) return;
         userProfileBody.textContent = 'Loading profile...';
+        if (userProfileLogoutBtn) {
+            userProfileLogoutBtn.style.display = 'none';
+        }
         userProfileModal.style.display = 'flex';
     }
 
@@ -765,6 +773,9 @@
             : (Number.isFinite(numericRating) && numericRating > 0 ? numericRating : 0);
         const handleRankClass = colorRating > 0 ? getRankFromRating(colorRating).color : '';
         const canEditOwnHandle = String(handle || '').toLowerCase() === String(userHandle || '').toLowerCase();
+        if (userProfileLogoutBtn) {
+            userProfileLogoutBtn.style.display = canEditOwnHandle ? 'inline-flex' : 'none';
+        }
         const maxRank = profile.maxRank || 'Unrated';
         const rating = Number.isFinite(Number(profile.rating)) ? profile.rating : '—';
         const maxRating = Number.isFinite(Number(profile.maxRating)) ? profile.maxRating : '—';
@@ -777,6 +788,7 @@
             ties: 0,
             winRate: '0.0',
             avgScore: '0.0',
+            totalScore: 0,
             streak: '-',
             opponents: [],
             recentMatches: []
@@ -817,7 +829,6 @@
                 <div class="user-profile-head-info">
                     <div class="user-profile-handle-row">
                         <div class="user-profile-handle ${handleRankClass}">${handle}</div>
-                        ${canEditOwnHandle ? '<button type="button" class="profile-edit-handle-btn" title="Change handle" aria-label="Change handle" data-change-handle="1">✎</button>' : ''}
                     </div>
                     <div class="user-presence ${statusClass}"><span class="presence-dot"></span>${statusText}</div>
                     <div class="user-profile-rank">${rank} · max ${maxRank}</div>
@@ -833,7 +844,6 @@
                 <a href="${base}" target="_blank" rel="noopener noreferrer">CF Profile</a>
                 <a href="${historyUrl}" target="_blank" rel="noopener noreferrer">History</a>
                 <a href="${h2hUrl}" target="_blank" rel="noopener noreferrer">Head-to-Head</a>
-                ${canEditOwnHandle ? '<button type="button" class="user-profile-logout-btn" data-logout-handle="1">Logout</button>' : ''}
             </div>
             <div class="user-profile-site">
                 <h4>PUC Blitz Stats</h4>
@@ -845,6 +855,7 @@
                     <div class="user-profile-item"><span>Win Rate</span><strong>${stats.winRate}%</strong></div>
                     <div class="user-profile-item"><span>Avg Score</span><strong>${stats.avgScore}</strong></div>
                     <div class="user-profile-item"><span>Streak</span><strong>${stats.streak}</strong></div>
+                    <div class="user-profile-item"><span>Total Score</span><strong>${stats.totalScore}</strong></div>
                 </div>
                 <div style="margin-top:8px;"><span style="color:var(--muted); font-size:0.82rem;">Played with:</span> ${opponentsHtml}</div>
                 <div class="user-recent-wrap">
@@ -2063,24 +2074,17 @@
         });
     }
 
+    if (userProfileLogoutBtn) {
+        userProfileLogoutBtn.addEventListener('click', () => {
+            if (!window.confirm('Are you sure you want to logout?')) {
+                return;
+            }
+            logoutCurrentUser();
+        });
+    }
+
     if (userProfileBody) {
         userProfileBody.addEventListener('click', (event) => {
-            const logoutBtn = event.target.closest('[data-logout-handle]');
-            if (logoutBtn) {
-                if (!window.confirm('Are you sure you want to logout?')) {
-                    return;
-                }
-                logoutCurrentUser();
-                return;
-            }
-
-            const changeHandleBtn = event.target.closest('[data-change-handle]');
-            if (changeHandleBtn) {
-                userProfileModal.style.display = 'none';
-                openHandleSetupModal();
-                return;
-            }
-
             const handleLink = event.target.closest('.user-stats-handle');
             if (!handleLink) return;
             const targetHandle = handleLink.dataset.handle;
@@ -2650,7 +2654,32 @@
         }
     }
 
+    function shouldSkipDuplicateNotification(title, message) {
+        const now = Date.now();
+        const normalizedTitle = String(title || '').trim().toLowerCase();
+        const normalizedMessage = String(message || '').trim().toLowerCase();
+        const key = `${normalizedTitle}::${normalizedMessage}`;
+        const previous = Number(recentNotificationEvents.get(key)) || 0;
+
+        for (const [eventKey, timestamp] of recentNotificationEvents.entries()) {
+            if (now - Number(timestamp) > NOTIFICATION_DEDUPE_WINDOW_MS) {
+                recentNotificationEvents.delete(eventKey);
+            }
+        }
+
+        if (previous > 0 && (now - previous) <= NOTIFICATION_DEDUPE_WINDOW_MS) {
+            return true;
+        }
+
+        recentNotificationEvents.set(key, now);
+        return false;
+    }
+
     function showDesktopNotification(title, message, isWinner = false, allowOSNotification = false) {
+        if (shouldSkipDuplicateNotification(title, message)) {
+            return;
+        }
+
         const notification = document.createElement('div');
         notification.className = `desktop-notification ${isWinner ? 'winner' : ''}`;
         notification.innerHTML = `

@@ -42,28 +42,6 @@
         return String(decodeStoredValue(localStorage.getItem('blitzUserHandle') || '') || '').trim();
     }
 
-    function clearAuthSessionStorage() {
-        localStorage.removeItem('blitzUserHandle');
-        localStorage.removeItem('blitzUserAvatar');
-        localStorage.removeItem('blitzRoomState');
-        localStorage.removeItem('blitzBattleRuntimeState');
-        localStorage.removeItem('blitzPendingJoinRoomId');
-        localStorage.removeItem('blitzAuthMeta');
-    }
-
-    async function logoutCurrentSession() {
-        try {
-            await fetch(`${API_BASE_URL}/api/session/logout`, {
-                method: 'POST',
-                credentials: 'same-origin'
-            });
-        } catch {
-        }
-
-        clearAuthSessionStorage();
-        window.location.reload();
-    }
-
     function normalize(handle) {
         return String(handle || '').trim().toLowerCase();
     }
@@ -153,9 +131,36 @@
 
         const selectedNorm = normalize(selectedHandle);
         allProfilesList.innerHTML = handles.map(handle => {
+            const handleNorm = normalize(handle);
             const activeClass = normalize(handle) === selectedNorm ? ' active' : '';
-            return `<a class="profile-chip${activeClass}" href="/${encodeURIComponent(handle)}">${handle}</a>`;
+            return `<a class="profile-chip${activeClass}" data-handle-norm="${handleNorm}" href="/${encodeURIComponent(handle)}">${handle}</a>`;
         }).join('');
+    }
+
+    function scrollToListedHandle(handle) {
+        if (!allProfilesList) return;
+        const handleNorm = normalize(handle);
+        if (!handleNorm) return;
+
+        const chips = Array.from(allProfilesList.querySelectorAll('.profile-chip'));
+        const chip = chips.find(element => normalize(element.getAttribute('data-handle-norm') || element.textContent || '') === handleNorm);
+        if (!chip) return;
+
+        requestAnimationFrame(() => {
+            chip.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+                inline: 'nearest'
+            });
+
+            if (typeof chip.focus === 'function') {
+                try {
+                    chip.focus({ preventScroll: true });
+                } catch {
+                    chip.focus();
+                }
+            }
+        });
     }
 
     async function fetchUserProfileDetails(handle) {
@@ -273,7 +278,7 @@
         const contribution = Number.isFinite(Number(profile.contribution)) ? profile.contribution : '—';
         const friendOfCount = Number.isFinite(Number(profile.friendOfCount)) ? profile.friendOfCount : '—';
         const avatar = profile.titlePhoto || '';
-        const stats = siteStats || { played: 0, wins: 0, losses: 0, ties: 0, winRate: '0.0', avgScore: '0.0', streak: '-', opponents: [], recentMatches: [] };
+        const stats = siteStats || { played: 0, wins: 0, losses: 0, ties: 0, winRate: '0.0', avgScore: '0.0', totalScore: 0, streak: '-', opponents: [], recentMatches: [] };
         const historyUrl = `results.html?handle=${encodeURIComponent(handle)}`;
         const cfUrl = `https://codeforces.com/profile/${encodeURIComponent(handle)}`;
         const maxRatingNum = Number(profile.maxRating);
@@ -284,7 +289,6 @@
             ? 'online now'
             : formatLastSeenLikeCodeforces(presence?.lastSeen);
         const statusClass = presence?.active ? 'status-active' : 'status-offline';
-        const canLogout = !!getStoredHandle();
         const selfHandle = String(getStoredHandle() || '').trim();
         const h2hUrl = selfHandle && selfHandle.toLowerCase() !== String(handle).toLowerCase()
             ? `headtohead.html?h1=${encodeURIComponent(selfHandle)}&h2=${encodeURIComponent(handle)}`
@@ -316,7 +320,6 @@
                 <div class="user-profile-head-info">
                     <div class="user-profile-handle-row">
                         <div class="user-profile-handle ${handleRankClass}">${handle}</div>
-                        ${canLogout ? '<button type="button" class="user-profile-logout-btn" data-profile-logout="1">Logout</button>' : ''}
                     </div>
                     <div class="user-presence ${statusClass}"><span class="presence-dot"></span>${statusText}</div>
                     <div class="user-profile-rank">${rank} · max ${maxRank}</div>
@@ -343,6 +346,7 @@
                     <div class="user-profile-item"><span>Win Rate</span><strong>${stats.winRate}%</strong></div>
                     <div class="user-profile-item"><span>Avg Score</span><strong>${stats.avgScore}</strong></div>
                     <div class="user-profile-item"><span>Streak</span><strong>${stats.streak}</strong></div>
+                    <div class="user-profile-item"><span>Total Score</span><strong>${stats.totalScore}</strong></div>
                 </div>
                 <div style="margin-top:8px;"><span style="color:var(--muted); font-size:0.82rem;">Played with:</span> ${opponentsHtml}</div>
                 <div class="user-recent-wrap">
@@ -386,6 +390,7 @@
             const stats = buildSiteUserStats(cleanHandle);
             renderProfile(profile, stats, presence);
             renderAllListedProfiles(cleanHandle);
+            scrollToListedHandle(cleanHandle);
 
             const normalizedPath = `/${encodeURIComponent(cleanHandle)}`;
             if (window.location.pathname !== normalizedPath) {
@@ -409,16 +414,6 @@
             event.preventDefault();
             handleOpenClick();
         }
-    });
-
-    profileBody.addEventListener('click', (event) => {
-        const logoutBtn = event.target.closest('[data-profile-logout]');
-        if (!logoutBtn) return;
-        event.preventDefault();
-        if (!window.confirm('Are you sure you want to logout?')) {
-            return;
-        }
-        logoutCurrentSession().catch(() => {});
     });
 
     const initialHandle = getHandleFromUrl();
