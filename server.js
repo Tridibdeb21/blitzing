@@ -8,7 +8,9 @@ const crypto = require('crypto');
 
 // database for persistent storage of results
 const sqlite3 = require('sqlite3').verbose();
-const DB_FILE = path.join(__dirname, 'blitz.db');
+// use persistent path when available (Render mounts /data as persistent disk)
+const DEFAULT_DB_PATH = path.join(__dirname, 'blitz.db');
+const DB_FILE = process.env.DB_PATH || process.env.DATA_DIR && path.join(process.env.DATA_DIR, 'blitz.db') || '/data/blitz.db' || DEFAULT_DB_PATH;
 let db;
 
 function dbRun(sql, params = []) {
@@ -30,6 +32,10 @@ function dbAll(sql, params = []) {
 }
 
 async function initDb() {
+    // ensure directory exists
+    try {
+        await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+    } catch {}
     db = new sqlite3.Database(DB_FILE);
     await dbRun(`CREATE TABLE IF NOT EXISTS results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -775,11 +781,12 @@ async function resolveTieWinnerByRules(player1Handle, player2Handle) {
 
     const p1Max = Number(p1.maxRating) || Number.MAX_SAFE_INTEGER;
     const p2Max = Number(p2.maxRating) || Number.MAX_SAFE_INTEGER;
-    if (p1Max !== p2Max) return p1Max < p2Max ? player1Handle : player2Handle;
+    // higher max rating should win in case of tie
+    if (p1Max !== p2Max) return p1Max > p2Max ? player1Handle : player2Handle;
 
     const p1Rating = Number(p1.rating) || Number.MAX_SAFE_INTEGER;
     const p2Rating = Number(p2.rating) || Number.MAX_SAFE_INTEGER;
-    if (p1Rating !== p2Rating) return p1Rating < p2Rating ? player1Handle : player2Handle;
+    if (p1Rating !== p2Rating) return p1Rating > p2Rating ? player1Handle : player2Handle;
 
     const p1Registered = Number(p1.registrationTimeSeconds) || 0;
     const p2Registered = Number(p2.registrationTimeSeconds) || 0;
@@ -968,23 +975,25 @@ async function updateBracketMatchFromResult(resultPayload) {
                 player2Score = swapped;
             }
 
-            let winnerHandle = winnerRaw;
+            // keep the original winner token; resolve to an actual handle only for propagation
+            let winnerResolved = winnerRaw;
             if (winnerRaw === 'tie') {
-                winnerHandle = await resolveTieWinnerByRules(p1Handle, p2Handle);
+                winnerResolved = await resolveTieWinnerByRules(p1Handle, p2Handle);
             }
 
             match.status = 'completed';
-            match.winner = winnerHandle;
+            // store raw value ("tie" or handle) for display and stats
+            match.winner = winnerRaw;
             match.result = {
                 winnerOriginal: winnerRaw,
-                winnerResolved: winnerHandle,
+                winnerResolved,
                 player1Score,
                 player2Score,
                 finishedAt: resultPayload?.date || new Date().toISOString()
             };
 
             if (!wasCompleted) {
-                const propagated = applyWinnerToNextSlots(bracket, match, winnerHandle);
+                const propagated = applyWinnerToNextSlots(bracket, match, winnerResolved);
                 const championUpdated = applyChampionPlaceholders(bracket);
                 const autoByeAdvanced = autoAdvanceBracketByes(bracket);
 
@@ -1522,13 +1531,23 @@ async function verifyTimerEndSubmissions(room) {
                 const solveKey = `${currentProblem.id || `${currentProblem.contestId}${currentProblem.index}`}:${solverHandle}`;
                 room.battleState.solveAnnouncements[solveKey] = true;
 
+                // compute solve time relative to battle start (in seconds)
+                const solveTimeSec = room.battleState && room.battleState.startsAt
+                    ? Math.max(0, Math.floor((Date.now() - Number(room.battleState.startsAt)) / 1000))
+                    : null;
+
+                // record in persistent maps
+                if (!room.battleState.problemSolveTimes) room.battleState.problemSolveTimes = {};
+                room.battleState.problemSolveTimes[key] = solveTimeSec;
+
                 sendToRoom(room, {
                     type: 'PROBLEM_SOLVED',
                     roomId: room.id,
                     solverHandle,
                     problemId: currentProblem.id || `${currentProblem.contestId}${currentProblem.index}`,
                     problemNumber: currentProblemNumber,
-                    solveKey
+                    solveKey,
+                    solvedAtSec: solveTimeSec
                 });
             }
 
@@ -1812,7 +1831,8 @@ async function startBattleForPair(room, startP1, startP2) {
         usedProblemIds,
         problemConfigs: room.problems,
         generatedProblemLocks: {},
-        problemWinners: {},
+        problemWinners: {},          // map problemKey -> solverHandle or { handle, solvedAtSec }
+        problemSolveTimes: {},        // additional map for easy lookup
         solveAnnouncements: {},
         liveState: {
             currentProblemNumber: firstProblem ? 1 : 0,
@@ -1821,7 +1841,8 @@ async function startBattleForPair(room, startP1, startP2) {
             solvedBy: null,
             breakStartsAt: null,
             breakEndsAt: null,
-            updatedAt: Date.now()
+            updatedAt: Date.now(),
+            // note: solve times liveState not needed; full battleState contains them
         },
         duration: room.duration,
         interval: room.interval,
@@ -2443,6 +2464,14 @@ async function handleProblemSolved(ws, data) {
     }
     room.battleState.problemWinners[problemWinnerKey] = solverHandle;
 
+    // compute solve time in seconds relative to battle start
+    const solveTimeSec = room.battleState.startsAt
+        ? Math.max(0, Math.floor((Date.now() - Number(room.battleState.startsAt)) / 1000))
+        : null;
+    // record for later retrieval
+    if (!room.battleState.problemSolveTimes) room.battleState.problemSolveTimes = {};
+    room.battleState.problemSolveTimes[problemWinnerKey] = solveTimeSec;
+
     const solveKey = `${problemId}:${solverHandle}`;
     if (room.battleState.solveAnnouncements[solveKey]) return;
     room.battleState.solveAnnouncements[solveKey] = true;
@@ -2453,7 +2482,8 @@ async function handleProblemSolved(ws, data) {
         solverHandle,
         problemId,
         problemNumber,
-        solveKey
+        solveKey,
+        solvedAtSec: solveTimeSec
     });
 
     const totalProblems = (room.battleState.problemConfigs || room.problems || []).length;

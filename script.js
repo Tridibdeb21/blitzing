@@ -1234,6 +1234,17 @@
                     showDesktopNotification('✅ Problem Solved!', `${data.solverHandle} solved Problem ${data.problemNumber}!`, false, true);
                 }
 
+                // update local problem results with solve time if provided
+                const idx = (Number(data.problemNumber) || 1) - 1;
+                if (typeof data.solvedAtSec === 'number') {
+                    if (data.solverHandle === player1Handle && problemResults.p1[idx]) {
+                        problemResults.p1[idx].solvedAtSec = data.solvedAtSec;
+                    }
+                    if (data.solverHandle === player2Handle && problemResults.p2[idx]) {
+                        problemResults.p2[idx].solvedAtSec = data.solvedAtSec;
+                    }
+                }
+
                 if (battleActive && !problemLocked) {
                     const solvedProblemNumber = Number(data.problemNumber) || 0;
                     const isCurrentProblem = solvedProblemNumber === currentProblemIndex;
@@ -1325,6 +1336,7 @@
         };
 
         const problemWinners = state.problemWinners || {};
+        const problemSolveTimes = state.problemSolveTimes || {};
         Object.entries(problemWinners).forEach(([problemWinnerKey, winnerHandle]) => {
             const [problemNumberStr] = String(problemWinnerKey).split(':');
             const problemNumber = Number(problemNumberStr) || 0;
@@ -1339,11 +1351,15 @@
             }
 
             const problemPoints = problems[problemNumber - 1]?.points || selectedProblems[problemNumber - 1]?.points || 0;
+            const solvedTime = Number(problemSolveTimes[problemWinnerKey]);
+
             if (winnerHandle === player1Handle) {
                 player1Score += problemPoints;
                 problemResults.p1[problemIndex].solved = true;
                 problemResults.p1[problemIndex].pending = false;
-                if (!Number.isFinite(Number(problemResults.p1[problemIndex].solvedAtSec))) {
+                if (Number.isFinite(solvedTime)) {
+                    problemResults.p1[problemIndex].solvedAtSec = solvedTime;
+                } else if (!Number.isFinite(Number(problemResults.p1[problemIndex].solvedAtSec))) {
                     problemResults.p1[problemIndex].solvedAtSec = null;
                 }
                 p1SolvedProblems.add(String(problemNumber));
@@ -1351,7 +1367,9 @@
                 player2Score += problemPoints;
                 problemResults.p2[problemIndex].solved = true;
                 problemResults.p2[problemIndex].pending = false;
-                if (!Number.isFinite(Number(problemResults.p2[problemIndex].solvedAtSec))) {
+                if (Number.isFinite(solvedTime)) {
+                    problemResults.p2[problemIndex].solvedAtSec = solvedTime;
+                } else if (!Number.isFinite(Number(problemResults.p2[problemIndex].solvedAtSec))) {
                     problemResults.p2[problemIndex].solvedAtSec = null;
                 }
                 p2SolvedProblems.add(String(problemNumber));
