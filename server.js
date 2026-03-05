@@ -8,9 +8,16 @@ const crypto = require('crypto');
 
 // database for persistent storage of results
 const sqlite3 = require('sqlite3').verbose();
-// use persistent path when available (Render mounts /data as persistent disk)
+// database configuration
 const DEFAULT_DB_PATH = path.join(__dirname, 'blitz.db');
-const DB_FILE = process.env.DB_PATH || process.env.DATA_DIR && path.join(process.env.DATA_DIR, 'blitz.db') || '/data/blitz.db' || DEFAULT_DB_PATH;
+// prefer an explicit override, then Render-style DATA_DIR, then /data, otherwise fall back to local
+let DB_FILE = process.env.DB_PATH ||
+              (process.env.DATA_DIR && path.join(process.env.DATA_DIR, 'blitz.db')) ||
+              '/data/blitz.db' ||
+              DEFAULT_DB_PATH;
+console.log('DB_PATH environment variable:', process.env.DB_PATH);
+console.log('DATA_DIR environment variable:', process.env.DATA_DIR);
+console.log('selected sqlite database file at', DB_FILE);
 let db;
 
 function dbRun(sql, params = []) {
@@ -32,11 +39,54 @@ function dbAll(sql, params = []) {
 }
 
 async function initDb() {
-    // ensure directory exists
+    // make sure path exists and is writable
+    const dir = path.dirname(DB_FILE);
     try {
-        await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
-    } catch {}
-    db = new sqlite3.Database(DB_FILE);
+        await fs.mkdir(dir, { recursive: true });
+        // try writing a temp file to verify write access
+        const testPath = path.join(dir, `.write_test_${Date.now()}`);
+        await fs.writeFile(testPath, '');
+        await fs.unlink(testPath);
+    } catch (err) {
+        console.warn(`could not prepare database directory ${dir}:`, err.message);
+        console.warn('falling back to project-local database (data may not persist across restarts)');
+        console.warn('consider setting DB_PATH to a writable location or mounting a persistent volume');
+        // revert to local file
+        DB_FILE = path.join(__dirname, 'blitz.db');
+        try {
+            await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+        } catch {}
+    }
+
+    // try opening the file, catch errors synchronously via callback
+    await new Promise((resolve, reject) => {
+        db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, async (err) => {
+            if (err) {
+                console.error('sqlite open error for', DB_FILE, err.message);
+                if (DB_FILE !== DEFAULT_DB_PATH) {
+                    console.warn('attempting fallback to default path', DEFAULT_DB_PATH);
+                    DB_FILE = DEFAULT_DB_PATH;
+                    try {
+                        await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+                    } catch {}
+                    db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err2) => {
+                        if (err2) {
+                            console.error('fallback sqlite open also failed', err2.message);
+                            reject(err2);
+                        } else {
+                            console.log('opened fallback database at', DB_FILE);
+                            resolve();
+                        }
+                    });
+                } else {
+                    reject(err);
+                }
+            } else {
+                resolve();
+            }
+        });
+    });
+
     await dbRun(`CREATE TABLE IF NOT EXISTS results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         matchKey TEXT UNIQUE,
