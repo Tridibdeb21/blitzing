@@ -41,6 +41,7 @@ function dbAll(sql, params = []) {
 async function initDb() {
     // make sure path exists and is writable
     const dir = path.dirname(DB_FILE);
+    let attemptedPaths = [];
     try {
         await fs.mkdir(dir, { recursive: true });
         // try writing a temp file to verify write access
@@ -58,33 +59,46 @@ async function initDb() {
         } catch {}
     }
 
-    // try opening the file, catch errors synchronously via callback
-    await new Promise((resolve, reject) => {
-        db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, async (err) => {
-            if (err) {
-                console.error('sqlite open error for', DB_FILE, err.message);
-                if (DB_FILE !== DEFAULT_DB_PATH) {
-                    console.warn('attempting fallback to default path', DEFAULT_DB_PATH);
-                    DB_FILE = DEFAULT_DB_PATH;
-                    try {
-                        await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
-                    } catch {}
-                    db = new sqlite3.Database(DB_FILE, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err2) => {
-                        if (err2) {
-                            console.error('fallback sqlite open also failed', err2.message);
-                            reject(err2);
-                        } else {
-                            console.log('opened fallback database at', DB_FILE);
-                            resolve();
-                        }
-                    });
-                } else {
-                    reject(err);
+    async function openDb(pathToOpen) {
+        return new Promise((resolve, reject) => {
+            const instance = new sqlite3.Database(pathToOpen, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+                if (err) {
+                    return reject(err);
                 }
-            } else {
-                resolve();
-            }
+                resolve(instance);
+            });
         });
+    }
+
+    try {
+        db = await openDb(DB_FILE);
+        console.log('opened sqlite database at', DB_FILE);
+    } catch (err) {
+        console.error('failed to open sqlite database at', DB_FILE, err.message);
+        // try default location if not already
+        if (DB_FILE !== DEFAULT_DB_PATH) {
+            console.warn('attempting fallback to default path', DEFAULT_DB_PATH);
+            DB_FILE = DEFAULT_DB_PATH;
+            try {
+                await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+            } catch {}
+            try {
+                db = await openDb(DB_FILE);
+                console.log('opened fallback database at', DB_FILE);
+            } catch (err2) {
+                console.error('fallback open also failed:', err2.message);
+            }
+        }
+    }
+
+    if (!db) {
+        console.warn('opening sqlite database failed entirely; using in-memory database instead');
+        db = new sqlite3.Database(':memory:');
+    }
+
+    // log and prevent unhandled error events
+    db.on('error', (err) => {
+        console.error('sqlite database error event:', err.message);
     });
 
     await dbRun(`CREATE TABLE IF NOT EXISTS results (
