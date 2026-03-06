@@ -2598,108 +2598,109 @@ async function handleProblemSolved(ws, data) {
             solvedAtSec: solveTimeSec
         });
 
-    const totalProblems = (room.battleState.problemConfigs || room.problems || []).length;
-    const solvedProblemNumber = Number(problemNumber) || 0;
-    const solvedProblemIndex = solvedProblemNumber - 1;
-    const hasNextProblem = solvedProblemNumber >= 1 && solvedProblemNumber < totalProblems;
-    const now = Date.now();
+        const totalProblems = (room.battleState.problemConfigs || room.problems || []).length;
+        const solvedProblemNumber = Number(problemNumber) || 0;
+        const solvedProblemIndex = solvedProblemNumber - 1;
+        const hasNextProblem = solvedProblemNumber >= 1 && solvedProblemNumber < totalProblems;
+        const now = Date.now();
 
-    room.battleState.liveState = {
-        currentProblemNumber: solvedProblemNumber,
-        currentProblem: room.battleState.selectedProblems?.[solvedProblemIndex] || null,
-        problemLocked: true,
-        solvedBy: solverHandle,
-        breakStartsAt: hasNextProblem ? now : null,
-        breakEndsAt: hasNextProblem ? now + 60000 : null,
-        updatedAt: now
-    };
+        room.battleState.liveState = {
+            currentProblemNumber: solvedProblemNumber,
+            currentProblem: room.battleState.selectedProblems?.[solvedProblemIndex] || null,
+            problemLocked: true,
+            solvedBy: solverHandle,
+            breakStartsAt: hasNextProblem ? now : null,
+            breakEndsAt: hasNextProblem ? now + 60000 : null,
+            updatedAt: now
+        };
 
-    if (room.breakAdvanceTimeout) {
-        clearTimeout(room.breakAdvanceTimeout);
-        room.breakAdvanceTimeout = null;
-    }
-
-    if (hasNextProblem) {
-        const nextProblemNumberForLiveState = solvedProblemNumber + 1;
-        room.breakAdvanceTimeout = setTimeout(() => {
-            const targetRoom = rooms.get(room.id);
-            if (!targetRoom || !targetRoom.battleState || targetRoom.battleState.status !== 'running') return;
-
-            const nextProblemIndexForLiveState = nextProblemNumberForLiveState - 1;
-            targetRoom.battleState.liveState = {
-                currentProblemNumber: nextProblemNumberForLiveState,
-                currentProblem: targetRoom.battleState.selectedProblems?.[nextProblemIndexForLiveState] || null,
-                problemLocked: false,
-                solvedBy: null,
-                breakStartsAt: null,
-                breakEndsAt: null,
-                updatedAt: Date.now()
-            };
-            targetRoom.breakAdvanceTimeout = null;
-        }, 60000);
-    }
-
-    if (solvedProblemNumber < 1 || solvedProblemNumber >= totalProblems) {
-        return;
-    }
-
-    const nextProblemNumber = solvedProblemNumber + 1;
-    const nextProblemIndex = nextProblemNumber - 1;
-    if (!room.battleState.selectedProblems) {
-        room.battleState.selectedProblems = Array.from({ length: totalProblems }, () => null);
-    }
-    if (room.battleState.selectedProblems[nextProblemIndex]) {
-        const existingProblem = room.battleState.selectedProblems[nextProblemIndex];
-        sendToRoom(room, {
-            type: 'NEXT_PROBLEM_READY',
-            roomId: room.id,
-            problemNumber: nextProblemNumber,
-            problem: existingProblem
-        });
-        return;
-    }
-
-    if (!room.battleState.generatedProblemLocks) {
-        room.battleState.generatedProblemLocks = {};
-    }
-    if (room.battleState.generatedProblemLocks[nextProblemNumber]) {
-        return;
-    }
-
-    room.battleState.generatedProblemLocks[nextProblemNumber] = true;
-    try {
-        const problemConfigs = room.battleState.problemConfigs || room.problems || [];
-        const targetConfig = problemConfigs[nextProblemIndex] || { points: 500, rating: 1200 };
-        const usedProblemIds = Array.isArray(room.battleState.usedProblemIds)
-            ? room.battleState.usedProblemIds
-            : [];
-
-        const nextProblem = await generateRoomProblemForConfig(targetConfig, usedProblemIds);
-        room.battleState.selectedProblems[nextProblemIndex] = nextProblem;
-        if (!room.battleState.usedProblemIds.includes(nextProblem.id)) {
-            room.battleState.usedProblemIds.push(nextProblem.id);
+        if (room.breakAdvanceTimeout) {
+            clearTimeout(room.breakAdvanceTimeout);
+            room.breakAdvanceTimeout = null;
         }
 
-        if (room.bracketId) {
-            await reserveBracketProblemIds(room.bracketId, [nextProblem.id]);
+        if (hasNextProblem) {
+            const nextProblemNumberForLiveState = solvedProblemNumber + 1;
+            room.breakAdvanceTimeout = setTimeout(() => {
+                const targetRoom = rooms.get(room.id);
+                if (!targetRoom || !targetRoom.battleState || targetRoom.battleState.status !== 'running') return;
+
+                const nextProblemIndexForLiveState = nextProblemNumberForLiveState - 1;
+                targetRoom.battleState.liveState = {
+                    currentProblemNumber: nextProblemNumberForLiveState,
+                    currentProblem: targetRoom.battleState.selectedProblems?.[nextProblemIndexForLiveState] || null,
+                    problemLocked: false,
+                    solvedBy: null,
+                    breakStartsAt: null,
+                    breakEndsAt: null,
+                    updatedAt: Date.now()
+                };
+                targetRoom.breakAdvanceTimeout = null;
+            }, 60000);
         }
 
-        sendToRoom(room, {
-            type: 'NEXT_PROBLEM_READY',
-            roomId: room.id,
-            problemNumber: nextProblemNumber,
-            problem: nextProblem
-        });
+        if (solvedProblemNumber < 1 || solvedProblemNumber >= totalProblems) {
+            return;
+        }
+
+        const nextProblemNumber = solvedProblemNumber + 1;
+        const nextProblemIndex = nextProblemNumber - 1;
+        if (!room.battleState.selectedProblems) {
+            room.battleState.selectedProblems = Array.from({ length: totalProblems }, () => null);
+        }
+        if (room.battleState.selectedProblems[nextProblemIndex]) {
+            const existingProblem = room.battleState.selectedProblems[nextProblemIndex];
+            sendToRoom(room, {
+                type: 'NEXT_PROBLEM_READY',
+                roomId: room.id,
+                problemNumber: nextProblemNumber,
+                problem: existingProblem
+            });
+            return;
+        }
+
+        if (!room.battleState.generatedProblemLocks) {
+            room.battleState.generatedProblemLocks = {};
+        }
+        if (room.battleState.generatedProblemLocks[nextProblemNumber]) {
+            return;
+        }
+
+        room.battleState.generatedProblemLocks[nextProblemNumber] = true;
+        try {
+            const problemConfigs = room.battleState.problemConfigs || room.problems || [];
+            const targetConfig = problemConfigs[nextProblemIndex] || { points: 500, rating: 1200 };
+            const usedProblemIds = Array.isArray(room.battleState.usedProblemIds)
+                ? room.battleState.usedProblemIds
+                : [];
+
+            const nextProblem = await generateRoomProblemForConfig(targetConfig, usedProblemIds);
+            room.battleState.selectedProblems[nextProblemIndex] = nextProblem;
+            if (!room.battleState.usedProblemIds.includes(nextProblem.id)) {
+                room.battleState.usedProblemIds.push(nextProblem.id);
+            }
+
+            if (room.bracketId) {
+                await reserveBracketProblemIds(room.bracketId, [nextProblem.id]);
+            }
+
+            sendToRoom(room, {
+                type: 'NEXT_PROBLEM_READY',
+                roomId: room.id,
+                problemNumber: nextProblemNumber,
+                problem: nextProblem
+            });
+        } catch (error) {
+            console.error('Failed to generate next problem:', error);
+            sendToRoom(room, {
+                type: 'NEXT_PROBLEM_ERROR',
+                roomId: room.id,
+                problemNumber: nextProblemNumber,
+                message: 'Could not generate next problem right now. Please wait and solve refresh/rejoin if needed.'
+            });
+        }
     } catch (error) {
-        console.error('Failed to generate next problem:', error);
-        sendToRoom(room, {
-            type: 'NEXT_PROBLEM_ERROR',
-            roomId: room.id,
-            problemNumber: nextProblemNumber,
-            message: 'Could not generate next problem right now. Please wait and solve refresh/rejoin if needed.'
-        });
-    } finally {
-        delete room.battleState.generatedProblemLocks[nextProblemNumber];
+        console.error('Error in handleProblemSolved:', error);
     }
 }
 
